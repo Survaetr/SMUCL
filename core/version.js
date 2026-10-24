@@ -7,6 +7,7 @@ const path = require('path');
 const { app } = require('electron');
 const { fetchJson } = require('./net');
 const mirror = require('./mirror');
+const safe = require('./safe');
 
 let manifestCache = { source: null, time: 0, data: null };
 const TTL = 10 * 60 * 1000;
@@ -195,7 +196,9 @@ function dirSize(dir) {
 /** 读取本地版本 JSON，并沿 inheritsFrom 链合并（简化版继承处理） */
 function loadVersionJson(mcDir, id, depth = 0) {
   if (depth > 5) throw new Error('版本继承层级过深');
-  const file = path.join(mcDir, 'versions', id, `${id}.json`);
+  // id 与 inheritsFrom 都会参与路径拼接，必须是单段版本名
+  safe.assertVersionId(id);
+  const file = safe.safeJoin(path.join(mcDir, 'versions'), id, `${id}.json`);
   const json = readJson(file);
   if (!json) throw new Error(`未找到版本 ${id} 的 JSON，可能尚未安装`);
   if (!json.inheritsFrom) return { ...json, id };

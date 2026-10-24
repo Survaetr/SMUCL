@@ -12,6 +12,7 @@ const net = require('./net');
 const mirror = require('./mirror');
 const versionLib = require('./version');
 const rules = require('./rules');
+const safe = require('./safe');
 
 const OS_NAME = process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'osx' : 'linux';
 const OS_ARCH = process.arch === 'x64' ? '64' : process.arch === 'arm64' ? '64' : '32';
@@ -37,22 +38,30 @@ function nativeClassifier(lib) {
   return String(lib.natives[OS_NAME]).replace('${arch}', OS_ARCH);
 }
 
-/** 汇总需要下载的文件 */
+/**
+ * 汇总需要下载的文件
+ * 元数据里的 artifact.path / classifiers[].path 是远端可控的字符串，
+ * 一律按「相对路径」处理并校验必须落在 libraries/ 或 versions/ 内，
+ * 否则一个 ../../.. 就能把文件写到任意位置。
+ */
 function collectTasks(meta, mcDir, versionDir, source) {
   const tasks = [];
   const libraries = (meta.libraries || []).filter(libAllowed);
+  const libRoot = path.join(mcDir, 'libraries');
 
   for (const lib of libraries) {
     const art = lib.downloads && lib.downloads.artifact;
     const rel = art && art.path ? art.path : mavenPath(lib.name);
     const url = art && art.url ? art.url : `${lib.url || 'https://libraries.minecraft.net/'}${rel}`;
     const size = (art && art.size) || 0;
+    const sha1 = (art && art.sha1) || '';
 
     if (art) {
       tasks.push({
         url,
-        dest: path.join(mcDir, 'libraries', rel),
+        dest: safe.safeJoin(libRoot, rel),
         size,
+        sha1,
         kind: 'library',
         name: lib.name,
       });
@@ -60,8 +69,9 @@ function collectTasks(meta, mcDir, versionDir, source) {
       // 极老版本的库只有 url 字段（1.5 及以前）
       tasks.push({
         url,
-        dest: path.join(mcDir, 'libraries', rel),
+        dest: safe.safeJoin(libRoot, rel),
         size: 0,
+        sha1: '',
         kind: 'library',
         name: lib.name,
       });
@@ -74,8 +84,9 @@ function collectTasks(meta, mcDir, versionDir, source) {
       const c = lib.downloads.classifiers[classifier];
       tasks.push({
         url: c.url,
-        dest: path.join(mcDir, 'libraries', c.path || mavenPath(`${lib.name}:${classifier}`)),
+        dest: safe.safeJoin(libRoot, c.path || mavenPath(`${lib.name}:${classifier}`)),
         size: c.size || 0,
+        sha1: c.sha1 || '',
         kind: 'native',
         name: lib.name,
         exclude: (lib.extract && lib.extract.exclude) || ['META-INF/'],
@@ -132,10 +143,12 @@ async function extractNatives(tasks, log) {
  * @returns {Promise<{ok:boolean, id:string, files:number, bytes:number, seconds:number, warnings:string[]}>}
  */
 async function install(id, entry, source, onProgress) {
+  // 版本名来自界面，必须先确认是单段名字，否则 versions/<id> 可以穿到任意目录
+  safe.assertVersionId(id);
   const started = Date.now();
   const settings = require('./settings');
   const mcDir = settings.ensureGameDir();
-  const versionDir = path.join(mcDir, 'versions', id);
+  const versionDir = safe.safeJoin(path.join(mcDir, 'versions'), id);
   await fsp.mkdir(versionDir, { recursive: true });
 
   const report = (patch) => onProgress && onProgress({ id, ...patch });
@@ -162,6 +175,7 @@ async function install(id, entry, source, onProgress) {
       url: c.url,
       dest: path.join(versionDir, `${id}.jar`),
       size: c.size || 0,
+      sha1: c.sha1 || '',
       kind: 'client',
       name: 'client.jar',
     });
@@ -171,17 +185,23 @@ async function install(id, entry, source, onProgress) {
 
   tasks.push(...collectTasks(meta, mcDir, versionDir, source));
 
-  // 资源索引
+  // 资源索引（id 会参与文件名，必须限定为安全单段）
   let assetIndex = meta.assetIndex;
-  const assetsName = (assetIndex && assetIndex.id) || meta.assets || 'legacy';
-  const indexPath = path.join(mcDir, 'assets', 'indexes', `${assetsName}.json`);
+  let assetsName = (assetIndex && assetIndex.id) || meta.assets || 'legacy';
+  try {
+    safe.assertVersionId(String(assetsName), '资源索引名');
+  } catch {
+    log('资源索引名非法，已回退到 legacy');
+    assetsName = 'legacy';
+  }
+  const indexPath = safe.safeJoin(path.join(mcDir, 'assets', 'indexes'), `${assetsName}.json`);
   let indexJson = null;
 
   if (assetIndex && assetIndex.url) {
     await downloadWithFallback(
       assetIndex.url,
       indexPath,
-      { expectedSize: assetIndex.size || 0 },
+      { expectedSize: assetIndex.size || 0, expectedSha1: assetIndex.sha1 || '' },
       source
     );
     indexJson = versionLib.readJson(indexPath);
@@ -192,13 +212,18 @@ async function install(id, entry, source, onProgress) {
   const assetTasks = [];
   if (indexJson && indexJson.objects) {
     const seen = new Set();
+    const objectsRoot = path.join(mcDir, 'assets', 'objects');
     for (const [name, obj] of Object.entries(indexJson.objects)) {
       if (!obj || !obj.hash || seen.has(obj.hash)) continue;
+      // 资源哈希是文件名，必须严格是 40 位十六进制，否则可以借它做路径穿越
+      if (!/^[0-9a-f]{40}$/i.test(String(obj.hash))) continue;
       seen.add(obj.hash);
+      const hash = String(obj.hash).toLowerCase();
       assetTasks.push({
-        url: `https://resources.download.minecraft.net/${obj.hash.slice(0, 2)}/${obj.hash}`,
-        dest: path.join(mcDir, 'assets', 'objects', obj.hash.slice(0, 2), obj.hash),
+        url: `https://resources.download.minecraft.net/${hash.slice(0, 2)}/${hash}`,
+        dest: safe.safeJoin(objectsRoot, hash.slice(0, 2), hash),
         size: obj.size || 0,
+        sha1: hash,
         kind: 'asset',
         name,
       });
@@ -212,10 +237,19 @@ async function install(id, entry, source, onProgress) {
   // 日志配置（log4j）
   const loggingFile = meta.logging && meta.logging.client && meta.logging.client.file;
   if (loggingFile && loggingFile.url) {
+    let logName = 'client.xml';
+    try {
+      const candidate = String(loggingFile.id || 'client.xml');
+      // 只允许单段文件名，防止 ../../ 把配置写出 assets/
+      if (safe.safeEntryName(candidate) === candidate && !candidate.includes('/')) logName = candidate;
+    } catch {
+      logName = 'client.xml';
+    }
     tasks.push({
       url: loggingFile.url,
-      dest: path.join(mcDir, 'assets', 'log_configs', loggingFile.id || 'client.xml'),
+      dest: safe.safeJoin(path.join(mcDir, 'assets', 'log_configs'), logName),
       size: loggingFile.size || 0,
+      sha1: loggingFile.sha1 || '',
       kind: 'logconfig',
       name: 'log4j config',
     });
@@ -253,6 +287,7 @@ async function install(id, entry, source, onProgress) {
         t.dest,
         {
           expectedSize: t.size,
+          expectedSha1: t.sha1 || '',
           retries: 1,
           onBytes: (n) => {
             bytes += n;
@@ -283,7 +318,13 @@ async function install(id, entry, source, onProgress) {
         : path.join(mcDir, 'assets', 'virtual', assetsName);
     for (const [name, obj] of Object.entries(indexJson.objects)) {
       const src = path.join(mcDir, 'assets', 'objects', obj.hash.slice(0, 2), obj.hash);
-      const dst = path.join(targetRoot, name);
+      let dst;
+      try {
+        // 索引里的资源名同样是外部数据，1.7 以前会按原名铺到 resources/
+        dst = safe.safeJoin(targetRoot, name);
+      } catch {
+        continue;
+      }
       try {
         if (!fs.existsSync(dst)) {
           await fsp.mkdir(path.dirname(dst), { recursive: true });
@@ -307,4 +348,4 @@ async function install(id, entry, source, onProgress) {
   };
 }
 
-module.exports = { install, mavenPath, OS_NAME };
+module.exports = { install, mavenPath, OS_NAME, collectTasks, extractNatives };

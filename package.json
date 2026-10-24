@@ -1,7 +1,7 @@
 {
   "name": "smucl",
   "productName": "SMUCL",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "SMUCL — 上海海事大学 Minecraft 启动器",
   "main": "main.js",
   "author": "SMUCL",
@@ -10,7 +10,8 @@
     "start": "electron .",
     "dev": "electron . --dev",
     "dist": "electron-builder --win portable",
-    "icon": "python build/make_logo.py"
+    "icon": "python build/make_logo.py",
+    "test:security": "node test/security-test.js"
   },
   "keywords": [
     "minecraft",

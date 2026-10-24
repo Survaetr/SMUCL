@@ -6,11 +6,23 @@
 const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
+const crypto = require('crypto');
 
 const UA = 'SMUCL/1.0 (+https://mc.sjtu.cn) Electron';
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/** 边读边算 SHA1，避免把整个文件读进内存 */
+function sha1File(file) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha1');
+    const stream = fs.createReadStream(file);
+    stream.on('error', reject);
+    stream.on('data', (chunk) => hash.update(chunk));
+    stream.on('end', () => resolve(hash.digest('hex')));
+  });
 }
 
 async function fetchJson(url, { timeout = 25000, retries = 2, raw = false, headers = {} } = {}) {
@@ -42,15 +54,31 @@ function fileSize(p) {
 
 /**
  * 下载单个文件。已存在且大小一致则跳过（增量安装的关键）。
+ * 若给了 expectedSha1，则大小一致也要比对哈希，不一致就删掉重下；
+ * 下载完成的临时文件在改名之前先校验，避免把损坏内容写进正式路径。
  * @returns {Promise<{size:number, skipped:boolean}>}
  */
 async function download(url, dest, opts = {}) {
-  const { expectedSize = 0, retries = 3, onBytes = null, timeout = 30000 } = opts;
+  const { expectedSize = 0, expectedSha1 = '', retries = 3, onBytes = null, timeout = 30000 } = opts;
+  const wantSha1 = String(expectedSha1 || '').toLowerCase();
 
   const existing = fileSize(dest);
   if (existing > 0 && (!expectedSize || existing === expectedSize)) {
-    if (onBytes) onBytes(existing);
-    return { size: existing, skipped: true };
+    let trust = true;
+    if (wantSha1 && /^[0-9a-f]{40}$/.test(wantSha1)) {
+      const got = await sha1File(dest).catch(() => '');
+      trust = got === wantSha1;
+      if (!trust) {
+        // 已有文件与官方哈希不符（残留损坏或被替换），删掉重新下载
+        try {
+          await fsp.unlink(dest);
+        } catch {}
+      }
+    }
+    if (trust) {
+      if (onBytes) onBytes(existing);
+      return { size: existing, skipped: true };
+    }
   }
 
   await fsp.mkdir(path.dirname(dest), { recursive: true });
@@ -79,6 +107,14 @@ async function download(url, dest, opts = {}) {
       } finally {
         await handle.close();
       }
+
+      if (wantSha1 && /^[0-9a-f]{40}$/.test(wantSha1)) {
+        const got = await sha1File(tmp);
+        if (got !== wantSha1) {
+          throw new Error(`SHA1 校验失败（期望 ${wantSha1}，实际 ${got}）`);
+        }
+      }
+
       await fsp.rename(tmp, dest);
       return { size: received, skipped: false };
     } catch (e) {
@@ -105,4 +141,4 @@ async function pool(items, limit, worker) {
   await Promise.all(runners);
 }
 
-module.exports = { fetchJson, download, pool, fileSize, sleep, UA };
+module.exports = { fetchJson, download, pool, fileSize, sleep, sha1File, UA };

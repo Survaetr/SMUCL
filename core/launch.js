@@ -12,8 +12,27 @@ const AdmZip = require('adm-zip');
 const versionLib = require('./version');
 const rules = require('./rules');
 const settingsLib = require('./settings');
+const safe = require('./safe');
 
 const OS_NAME = process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'osx' : 'linux';
+
+/**
+ * 版本 JSON 来自网络，其中的 JVM 参数会被原样传给 java，等同于命令行执行。
+ * agent / bootclasspath / OnError 这几类参数可以在启动瞬间加载任意 jar 或执行命令，
+ * 正常游戏版本不会用到，直接剔除。
+ */
+const FORBIDDEN_JVM_ARG =
+  /^(-javaagent:|-agentlib:|-agentpath:|-Xbootclasspath:|-Xbootclasspath\/[ap]:|-XX:OnError=|-XX:OnOutOfMemoryError=|-XX:+?UnlockDiagnosticVMOptions$)/i;
+
+function sanitizeJvmArgs(args) {
+  const out = [];
+  for (const arg of args || []) {
+    if (typeof arg !== 'string') continue;
+    if (FORBIDDEN_JVM_ARG.test(arg.trim())) continue;
+    out.push(arg);
+  }
+  return out;
+}
 
 function offlineUuid(name) {
   const hash = crypto.createHash('md5').update(`OfflinePlayer:${name}`, 'utf8').digest();
@@ -166,6 +185,7 @@ function resolveNativesDir(instanceDir) {
  * @returns {{java:string, args:string[], cwd:string, meta:object}}
  */
 function build(id, options = {}) {
+  safe.assertVersionId(id);
   const settings = settingsLib.all();
   const mcDir = options.sourceDir || settings.mcDir;
   const meta = versionLib.loadVersionJson(mcDir, id);
@@ -245,7 +265,7 @@ function build(id, options = {}) {
   const minMem = Math.min(1024, Math.floor(memory / 2));
 
   if (meta.arguments && Array.isArray(meta.arguments.jvm)) {
-    const raw = rules.flatten(meta.arguments.jvm, features);
+    const raw = sanitizeJvmArgs(rules.flatten(meta.arguments.jvm, features));
     // 新版 arguments 已包含 -Xmx 的占位符规范，但绝大多数版本没有，这里统一注入
     if (!raw.some((a) => a.startsWith('-Xmx'))) {
       jvm.push(`-Xmx${maxMem}M`, `-Xms${minMem}M`);
@@ -291,6 +311,21 @@ function build(id, options = {}) {
   return { java, args, cwd: gameDir, meta, playerName };
 }
 
+/** 启动前确认 java 路径确实是一个可执行文件（javaw.exe / java.exe），而不是任意程序 */
+function assertJavaPath(java) {
+  if (!java || typeof java !== 'string') throw new Error('未指定 Java 运行时');
+  const base = path.basename(java).toLowerCase();
+  if (!/^javaw?(\.exe)?$/.test(base)) throw new Error('Java 路径必须是 javaw.exe 或 java.exe');
+  let st;
+  try {
+    st = fs.statSync(java);
+  } catch {
+    throw new Error('Java 路径不存在');
+  }
+  if (!st.isFile()) throw new Error('Java 路径不是文件');
+  return java;
+}
+
 /**
  * 启动游戏
  * @param {string} id
@@ -300,6 +335,7 @@ function build(id, options = {}) {
 function launch(id, options, handlers = {}) {
   const built = build(id, options);
   const { java, args, cwd } = built;
+  assertJavaPath(java);
 
   const child = spawn(java, args, {
     cwd,
@@ -334,4 +370,11 @@ function launch(id, options, handlers = {}) {
   return { child, pid: child.pid, command: `${java} ${args.join(' ')}` };
 }
 
-module.exports = { launch, build, offlineUuid, extractNatives };
+module.exports = {
+  launch,
+  build,
+  offlineUuid,
+  extractNatives,
+  sanitizeJvmArgs,
+  assertJavaPath,
+};

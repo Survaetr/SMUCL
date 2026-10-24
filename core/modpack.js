@@ -21,6 +21,7 @@ const net = require('./net');
 const loadersLib = require('./loaders');
 const installer = require('./install');
 const versionLib = require('./version');
+const safe = require('./safe');
 
 /** 把整合包名压成目录名：保留中英文数字，其余换 - */
 function slugify(name) {
@@ -95,9 +96,13 @@ function extractOverrides(zip, prefix, destDir) {
     if (!entry.entryName.startsWith(prefix)) continue;
     const rel = entry.entryName.slice(prefix.length);
     if (!rel) continue;
-    const dest = path.join(destDir, rel);
-    // 防 zip 穿越
-    if (!dest.startsWith(path.resolve(destDir))) continue;
+    let dest;
+    try {
+      // 目录穿越用路径包含性判断，startsWith 前缀比较会被 <dir>-evil 绕过
+      dest = safe.safeJoin(destDir, rel);
+    } catch {
+      continue;
+    }
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     try {
       fs.writeFileSync(dest, entry.getData());
@@ -154,8 +159,8 @@ async function install({ gameDir, spec, javaPath, source = 'bmcl', baseUrl = '',
   }
 
   // 3) 建实例
-  const packId = uniqueInstanceId(gameDir, `${slugify(name)}-${mcVersion}`);
-  const instanceDir = path.join(gameDir, 'versions', packId);
+  const packId = safe.assertVersionId(uniqueInstanceId(gameDir, `${slugify(name)}-${mcVersion}`));
+  const instanceDir = safe.safeJoin(path.join(gameDir, 'versions'), packId);
   await fsp.mkdir(instanceDir, { recursive: true });
 
   const mainClass = loaderMainClass(gameDir, loaderId);
@@ -176,15 +181,25 @@ async function install({ gameDir, spec, javaPath, source = 'bmcl', baseUrl = '',
   await fsp.mkdir(path.join(instanceDir, 'mods'), { recursive: true });
 
   // 4) 下载文件
-  const usable = files.filter((f) => f && f.url && f.path);
+  const usable = files.filter((f) => f && f.url && f.path && safe.isHttpUrl(f.url));
   let done = 0;
   const failed = [];
 
   await net.pool(usable, 4, async (f) => {
-    const dest = path.join(instanceDir, f.path);
-    if (!path.resolve(dest).startsWith(path.resolve(instanceDir))) return;
+    let dest;
     try {
-      await net.download(f.url, dest, { expectedSize: f.size || 0, retries: 3, timeout: 60000 });
+      dest = safe.safeJoin(instanceDir, String(f.path));
+    } catch {
+      failed.push({ path: f.path, reason: '文件路径越界' });
+      done++;
+      return;
+    }
+    try {
+      await net.download(f.url, dest, {
+        expectedSize: f.size || 0,
+        retries: 3,
+        timeout: 60000,
+      });
       if (f.sha1) {
         const got = await sha1File(dest);
         if (got && got.toLowerCase() !== String(f.sha1).toLowerCase()) {

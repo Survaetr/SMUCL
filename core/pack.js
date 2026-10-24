@@ -13,6 +13,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const AdmZip = require('adm-zip');
+const safe = require('./safe');
 
 // 导入时跳过的东西：属于「这个玩家的本机状态」，不是整合包内容
 const SKIP_TOP = new Set(['launcher_profiles.json', 'launcher_accounts.json', 'logs', 'crash-reports', 'screenshots']);
@@ -27,16 +28,15 @@ function loaderOf(name) {
   return '';
 }
 
-/** 把 zip 条目统一成 posix 风格，去掉 ./ 前缀 */
+/** 把 zip 条目统一成 posix 风格，去掉 ./ 前缀；含 .. 或绝对路径的条目直接丢弃 */
 function entryPaths(zip) {
-  return zip
-    .getEntries()
-    .map((e) => ({
-      entry: e,
-      name: e.entryName.replace(/\\/g, '/').replace(/^\.\//, ''),
-      size: e.header.size,
-      isDir: e.isDirectory,
-    }));
+  const out = [];
+  for (const e of zip.getEntries()) {
+    const name = safe.safeEntryName(e.entryName);
+    if (!name) continue;
+    out.push({ entry: e, name, size: e.header.size, isDir: e.isDirectory });
+  }
+  return out;
 }
 
 /**
@@ -297,18 +297,35 @@ async function importPack({ zipPath, targetDir, onProgress }) {
   const report = { files: 0, versions: [], dirs: new Set(), warnings: [] };
 
   try {
-    new AdmZip(zipPath).extractAllTo(temp, true);
+    const zip = new AdmZip(zipPath);
+    // 自己逐条解压：丢弃越界条目，并限制条目数与解压体积（防 zip 炸弹）
+    const items = entryPaths(zip);
+    if (items.length > 50000) throw new Error('压缩包条目过多');
+    let budget = 4 * 1024 * 1024 * 1024;
+    for (const it of items) {
+      if (it.isDir) continue;
+      budget -= Number(it.size || 0);
+      if (budget < 0) throw new Error('压缩包解压后体积异常');
+    }
+    for (const it of items) {
+      if (it.isDir) continue;
+      const dest = safe.safeJoin(temp, it.name);
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      fs.writeFileSync(dest, it.entry.getData());
+    }
 
     // 解压后重新定位真正的根（对应 zip 里的 prefix）
     let root = temp;
     for (const seg of info.prefix.replace(/\/$/, '').split('/').filter(Boolean)) {
+      if (seg === '..') break;
       root = path.join(root, seg);
       if (!fs.existsSync(root)) {
         root = temp;
         break;
       }
     }
-    if (!fs.existsSync(root)) root = temp;
+    // 兜底：无论 prefix 怎么写，都不允许合并源跑到临时目录之外
+    if (!fs.existsSync(root) || !safe.withinDir(temp, root)) root = temp;
 
     let copied = 0;
     const onFile = () => {
