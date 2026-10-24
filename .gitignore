@@ -25,3 +25,6 @@ build/promo/
 # 临时截图/诊断产物
 build/*.png
 build/*.jpg
+
+# 1.5.0 宣传片产物（视频与静帧太大，不入库）
+build/promo2/

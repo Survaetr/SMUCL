@@ -19,6 +19,8 @@ const loadersLib = require('./core/loaders');
 const modrinthLib = require('./core/modrinth');
 const curseforgeLib = require('./core/curseforge');
 const safe = require('./core/safe');
+const authLib = require('./core/auth');
+const accountLib = require('./core/account');
 
 // Windows 上部分镜像的 AAAA 记录不可达，IPv6 优先会白等十几次超时
 try {
@@ -134,6 +136,8 @@ const EDITABLE_SETTINGS = new Set([
   'gpuHighPerf',
   'saveGroup',
   'cfApiKey',
+  'msClientId',
+  'loginMode',
   'lastSeenVersion',
   'pendingUpdate',
   'gpuFallback',
@@ -240,6 +244,15 @@ function sanitizeSettingsPatch(patch) {
         out.cfApiKey = key;
         break;
       }
+      case 'msClientId': {
+        const id = String(value || '').trim();
+        if (id && !/^[0-9a-fA-F-]{8,64}$/.test(id)) throw new Error('客户端 ID 格式无效');
+        out.msClientId = id;
+        break;
+      }
+      case 'loginMode':
+        out.loginMode = value === 'msa' ? 'msa' : 'offline';
+        break;
       case 'lastSeenVersion':
         out.lastSeenVersion = String(value || '').slice(0, 32);
         break;
@@ -674,6 +687,132 @@ function registerIpc() {
     };
   });
 
+  // ---------------- 正版登录 ----------------
+  let loginSession = null;
+
+  const msClientId = () => (settingsLib.all().msClientId || process.env.SMUCL_MS_CLIENT_ID || '').trim();
+
+  /** 取一个可用的正版账号；token 快过期就刷新 */
+  const freshAccount = async () => {
+    const a = accountLib.load();
+    if (!a || !a.name) return null;
+    const stillValid = a.accessToken && a.expiresAt && a.expiresAt - Date.now() > 120000;
+    if (stillValid) return a;
+
+    const clientId = msClientId();
+    if (!clientId || !a.refreshToken) return a; // 没配置就没法刷新，交给上层判断
+
+    try {
+      const t = await authLib.refreshToken(clientId, a.refreshToken);
+      const prof = await authLib.xboxToMinecraft(t.access_token);
+      return accountLib.save({ ...prof, refreshToken: t.refresh_token || a.refreshToken });
+    } catch (e) {
+      if (e.invalidGrant) {
+        accountLib.clear(); // 授权已失效（改密码/被撤销），只能重新登录
+        return null;
+      }
+      return a;
+    }
+  };
+
+  const authSend = (channel, payload) => {
+    if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+  };
+
+  handle('auth:status', async () => {
+    const info = accountLib.publicInfo();
+    return {
+      ok: true,
+      data: {
+        ...info,
+        clientId: msClientId(),
+        canEncrypt: accountLib.canEncrypt(),
+        mode: settingsLib.all().loginMode || 'offline',
+      },
+    };
+  });
+
+  handle('auth:setClientId', async (_e, { id }) => {
+    const v = String(id || '').trim();
+    await settingsLib.save({ msClientId: v });
+    return { ok: true, data: { clientId: v } };
+  });
+
+  handle('auth:setMode', async (_e, { mode }) => {
+    await settingsLib.save({ loginMode: mode === 'msa' ? 'msa' : 'offline' });
+    return { ok: true };
+  });
+
+  handle('auth:login', async () => {
+    if (loginSession) return { ok: false, error: '正在登录中，请先完成上一个授权' };
+    const clientId = msClientId();
+    if (!clientId) return { ok: false, needClientId: true, error: '还没有配置客户端 ID' };
+
+    let d;
+    try {
+      d = await authLib.startDeviceCode(clientId);
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+
+    loginSession = { cancelled: false, deviceCode: d.deviceCode };
+
+    // 后台轮询：用户在浏览器里输完码后自动完成
+    (async () => {
+      let interval = d.interval;
+      const deadline = Date.now() + (d.expiresIn || 900) * 1000;
+      while (loginSession && !loginSession.cancelled && Date.now() < deadline) {
+        await authLib.sleep(interval * 1000);
+        if (!loginSession || loginSession.cancelled) break;
+        try {
+          const r = await authLib.pollToken(clientId, d.deviceCode);
+          if (r.done) {
+            authSend('auth:stage', { stage: 'xbox', message: '正在验证 Xbox 账号…' });
+            const prof = await authLib.xboxToMinecraft(r.tokens.access_token);
+            accountLib.save({ ...prof, refreshToken: r.tokens.refresh_token });
+            await settingsLib.save({ loginMode: 'msa' });
+            loginSession = null;
+            authSend('auth:done', accountLib.publicInfo());
+            return;
+          }
+          if (r.reason === 'slow') interval += 5;
+          if (r.reason === 'expired') {
+            loginSession = null;
+            authSend('auth:failed', { error: '设备码已过期，请重新登录' });
+            return;
+          }
+          if (r.reason === 'declined') {
+            loginSession = null;
+            authSend('auth:failed', { error: '授权被取消' });
+            return;
+          }
+        } catch (e) {
+          loginSession = null;
+          authSend('auth:failed', { error: e.message });
+          return;
+        }
+      }
+      if (loginSession && !loginSession.cancelled) {
+        loginSession = null;
+        authSend('auth:failed', { error: '登录超时，请重新开始' });
+      }
+    })();
+
+    return { ok: true, data: { userCode: d.userCode, url: d.url, expiresIn: d.expiresIn } };
+  });
+
+  handle('auth:cancel', async () => {
+    if (loginSession) loginSession.cancelled = true;
+    loginSession = null;
+    return { ok: true };
+  });
+
+  handle('auth:logout', async () => {
+    accountLib.clear();
+    await settingsLib.save({ loginMode: 'offline' });
+    return { ok: true, data: { loggedIn: false } };
+  });
+
   // ---------------- 启动 ----------------
   handle('game:launch', async (_e, { id, dir } = {}) => {
     if (gameProc) return { ok: false, error: '游戏已在运行中' };
@@ -697,7 +836,18 @@ function registerIpc() {
         };
       }
 
-      const runtime = { ...settings, javaPath: assertUsableJava(picked.path), sourceDir: gameDir };
+      const account = settings.loginMode === 'msa' ? await freshAccount() : null;
+      if (settings.loginMode === 'msa' && !account) {
+        return { ok: false, error: '正版账号已失效，请在「设置 → 账号」重新登录' };
+      }
+      const runtime = {
+        ...settings,
+        javaPath: assertUsableJava(picked.path),
+        sourceDir: gameDir,
+        account: account
+          ? { name: account.name, uuid: account.uuid, accessToken: account.accessToken, xuid: account.xuid }
+          : null,
+      };
       if (picked.major !== required && win && !win.isDestroyed()) {
         win.webContents.send('game:log', {
           line: `> 提示：${versionId} 需要 Java ${required}，当前使用 Java ${picked.major}，可能无法正常启动`,

@@ -30,6 +30,8 @@ const DEFAULTS = {
   gpuHighPerf: false, // 已把 javaw.exe 写入 Windows「高性能显卡」偏好
   saveGroup: 'folder', // 存档分组：folder | version | time
   cfApiKey: '', // CurseForge API Key（仅本地保存，用于整合包搜索与下载）
+  msClientId: '', // 正版登录用的 Azure 应用 ID（自己注册，公开客户端）
+  loginMode: 'offline', // offline = 离线账户 | msa = 微软正版
 };
 
 let configPath = null;

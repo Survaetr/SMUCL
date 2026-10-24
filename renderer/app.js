@@ -570,6 +570,80 @@ async function installLoader() {
 }
 
 
+/* ---------------------------------------------------------------- 正版账号 */
+S.account = null;
+
+function renderAccount() {
+  const a = S.account || {};
+  const chip = $('#accountModeChip');
+  if (!chip) return;
+  chip.textContent = a.loggedIn ? '正版' : '离线';
+  chip.classList.toggle('chip-blue', Boolean(a.loggedIn));
+
+  $('#accountIdle').hidden = Boolean(a.loggedIn);
+  $('#accountSigned').hidden = !a.loggedIn;
+
+  if (a.loggedIn) {
+    $('#accountName').textContent = a.name;
+    $('#accountUuid').textContent = a.uuid;
+    $('#accountAvatar').textContent = (a.name || 'S').slice(0, 1).toUpperCase();
+    $('#accountNote').textContent = a.encrypted
+      ? '登录令牌已用系统凭据加密保存在本机；游戏启动时自动续期。'
+      : '注意：当前系统不支持加密存储，令牌以明文保存在本机配置目录。';
+    $('#sidePlayer').textContent = a.name;
+    $('#avatar').textContent = (a.name || 'S').slice(0, 1).toUpperCase();
+  } else {
+    $('#msClientIdInput').value = a.clientId || '';
+    $('#offlineNameLabel').textContent = (S.settings && S.settings.playerName) || 'Steve';
+  }
+}
+
+async function loadAccount() {
+  const r = await api.authStatus();
+  if (r.ok) {
+    S.account = r.data;
+    renderAccount();
+  }
+}
+
+async function startMsLogin() {
+  const input = $('#msClientIdInput');
+  const typed = input ? input.value.trim() : '';
+  if (typed && (!S.account || typed !== S.account.clientId)) {
+    await api.authSetClientId(typed);
+    await loadAccount();
+  }
+
+  const r = await api.authLogin();
+  if (!r.ok) {
+    if (r.needClientId) {
+      toast('请先填写 Azure 应用 ID', 'warn');
+      input && input.focus();
+      return;
+    }
+    toast(r.error, 'err');
+    return;
+  }
+
+  const { userCode, url } = r.data;
+  openModal({
+    title: '登录微软账号',
+    sub: '在浏览器里输入下面这串代码',
+    html: `<div class="device-code">${esc(userCode)}</div>
+      <p class="device-hint">打开 ${esc(url)}<br>输入代码并登录微软账号，这边的窗口会自动完成。</p>`,
+    buttons: [
+      {
+        text: '取消',
+        onClick: () => {
+          api.authCancel();
+          closeModal();
+        },
+      },
+      { text: '打开浏览器', primary: true, onClick: () => api.openUrl(url) },
+    ],
+  });
+}
+
 /* ---------------------------------------------------------------- 整合包商店 */
 S.packSource = 'modrinth';
 S.packHits = [];
@@ -1583,6 +1657,37 @@ function bindEvents() {
   $('#btnRefreshInstalled').onclick = refreshInstalledAndRender;
   $('#btnImportPack').onclick = () => importPackFlow();
 
+  // 正版账号
+  $('#btnSaveMsClient').onclick = async () => {
+    const v = $('#msClientIdInput').value.trim();
+    await api.authSetClientId(v);
+    await loadAccount();
+    toast(v ? '已保存客户端 ID' : '已清空客户端 ID', 'ok');
+  };
+  $('#btnMsLogin').onclick = startMsLogin;
+  $('#btnMsRelogin').onclick = startMsLogin;
+  $('#btnMsLogout').onclick = async () => {
+    await api.authLogout();
+    await loadAccount();
+    $('#sidePlayer').textContent = (S.settings && S.settings.playerName) || 'Steve';
+    $('#avatar').textContent = ((S.settings && S.settings.playerName) || 'S').slice(0, 1).toUpperCase();
+    toast('已退出正版账号', 'ok');
+  };
+
+  api.onAuthStage((p) => {
+    const body = $('#modalBody');
+    if (body && p && p.message) body.innerHTML += `<p class="device-hint">${esc(p.message)}</p>`;
+  });
+  api.onAuthDone(async () => {
+    closeModal();
+    await loadAccount();
+    toast(`已登录：${(S.account && S.account.name) || '微软账号'}`, 'ok');
+  });
+  api.onAuthFailed((p) => {
+    closeModal();
+    toast((p && p.error) || '登录失败', 'err');
+  });
+
   // 整合包商店
   $$('#packSource .seg').forEach((b) => {
     b.onclick = () => {
@@ -1875,6 +1980,7 @@ async function boot() {
 
   // 主题尽早应用，避免首帧闪一下
   applyTheme(S.settings.theme || 'auto');
+  loadAccount();
   renderLoaderCard();
 
   const info = await api.appInfo();

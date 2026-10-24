@@ -1300,3 +1300,26 @@ html[data-theme="light"] .pack-notice { color: #6b5327; }
   padding: 1px 7px; border-radius: 5px;
   background: rgba(106, 164, 240, 0.14); color: #9fc4f5;
 }
+
+/* =========================================================
+   账号
+   ========================================================= */
+.account-card .row { gap: 8px; }
+.account-card .row .input { flex: 1; min-width: 220px; }
+.account-who { display: flex; align-items: center; gap: 12px; }
+.account-avatar {
+  width: 46px; height: 46px; border-radius: 10px;
+  display: grid; place-items: center;
+  background: linear-gradient(180deg, var(--brand-2), #3f6fb5);
+  color: #08111d; font-family: var(--font-num); font-size: 20px; font-weight: 700;
+}
+.account-who b { display: block; font-size: 15px; color: var(--txt); }
+.account-who span {
+  font-size: 11px; color: var(--dim); font-family: var(--font-num);
+}
+.device-code {
+  font-family: var(--font-num);
+  font-size: 40px; font-weight: 700; letter-spacing: 10px;
+  text-align: center; padding: 18px 0 6px; color: var(--brand-2);
+}
+.device-hint { text-align: center; font-size: 12px; color: var(--txt-2); line-height: 1.7; }

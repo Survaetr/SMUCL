@@ -9,7 +9,7 @@
 [![Electron](https://img.shields.io/badge/Electron-45-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6?logo=windows&logoColor=white)](#)
 [![License](https://img.shields.io/badge/license-MIT-3DA639)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.5.0-3b7dd8](#)
+[![Version](https://img.shields.io/badge/version-1.6.0-3b7dd8](#)
 [![Release](https://img.shields.io/github/v/release/Survaetr/SMUCL?label=release&color=3DA639)](https://github.com/Survaetr/SMUCL/releases)
 
 </div>
@@ -32,6 +32,7 @@
 | 存档 | 扫描所有目录与实例的 `saves`，解析 `level.dat` 得到世界名、版本、模式、最后游玩；支持按文件夹（实例）/ 版本 / 时间分组、定位与移至回收站 |
 | 下载游戏 | 拉取 Mojang 版本清单，按正式版 / 快照 / 旧版筛选，逐行进度条安装；中断的实例显示「修复」；可在线安装 Fabric / Quilt / Forge / NeoForge 加载器（底座缺失自动补装） |
 | 整合包 | 从 Modrinth / CurseForge 搜索并一键安装，自动补原版与加载器，建版本隔离实例；也支持导入本地 zip |
+| 账号 | 微软正版登录（设备码流程），令牌用系统凭据加密保存；离线账户照旧可用 |
 | 设置 | Java 运行时扫描与指定、内存、JVM 参数、全屏、显卡偏好（写入 Windows 图形设置）、下载源、并发数、游戏目录管理、自动检查新版本 |
 | 主题 | 深色 / 浅色 / 跟随系统，标题栏右上角一键切换 |
 | 在线更新 | 检查本仓库 Release，下载 `app-<version>.zip` 增量更新包并自动重启；升级后首次启动弹出更新日志 |
@@ -139,6 +140,14 @@ SMUCL/
 → 把 `dist/app-<version>.zip` 上传到对应 Release。
 
 ## 更新记录
+
+**v1.6.0**
+
+- 新增正版登录：微软账号设备码流程，浏览器输码即可，密码不经过启动器
+- 令牌用 Electron `safeStorage`（Windows DPAPI）加密落盘，不存明文
+- 登录后启动自动使用正版身份，可进入正版验证服务器；令牌过期自动续期
+- 客户端 ID 可在设置里填写（Azure 免费注册、开启公共客户端流），不内置第三方 ID
+- 离线账户行为不变，随时可退出登录切回
 
 **v1.5.0**
 

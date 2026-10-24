@@ -86,7 +86,7 @@
             <span class="badge-offline">本地</span>
           </div>
           <button class="update-pill" id="updatePill" hidden>发现新版本</button>
-          <div class="side-hint">SMUCL v1.5.0 · 基于 Electron</div>
+          <div class="side-hint">SMUCL v1.6.0 · 基于 Electron</div>
         </div>
       </aside>
 
@@ -175,7 +175,7 @@
               </div>
 
               <div class="card notice-card">
-                <div class="card-head"><h2>公告</h2><span class="chip">v1.5.0</span></div>
+                <div class="card-head"><h2>公告</h2><span class="chip">v1.6.0</span></div>
                 <ul class="notice-list">
                   <li>
                     <b>镜像加速已开启</b>
@@ -349,6 +349,41 @@
           </div>
 
           <div class="settings-wrap">
+            <div class="card account-card">
+              <div class="card-head">
+                <h2>账号</h2>
+                <span class="chip" id="accountModeChip">离线</span>
+              </div>
+
+              <div id="accountIdle">
+                <p class="hint">当前使用离线账户 <b id="offlineNameLabel">Steve</b>：只能进离线服务器，正版验证的服务器会拒绝。</p>
+                <div class="row" style="margin-top:10px">
+                  <input class="input" id="msClientIdInput" placeholder="Azure 应用（客户端）ID，留空表示不启用正版登录" />
+                  <button class="btn-sm" id="btnSaveMsClient">保存</button>
+                  <button class="btn-sm btn-primary" id="btnMsLogin">登录微软账号</button>
+                </div>
+                <p class="hint" style="margin-top:8px">
+                  首次使用需要到 Azure 免费注册一个应用并开启「允许公共客户端流」，把应用 ID 填到上面。
+                  点「登录微软账号」会给出一个八位代码，在浏览器里输入即可，账号密码不会经过本启动器。
+                </p>
+              </div>
+
+              <div id="accountSigned" hidden>
+                <div class="account-who">
+                  <div class="account-avatar" id="accountAvatar">S</div>
+                  <div>
+                    <b id="accountName">—</b>
+                    <span id="accountUuid">—</span>
+                  </div>
+                </div>
+                <div class="row" style="margin-top:12px">
+                  <button class="btn-sm" id="btnMsLogout">退出登录</button>
+                  <button class="btn-sm" id="btnMsRelogin">换一个账号</button>
+                </div>
+                <p class="hint" id="accountNote" style="margin-top:8px"></p>
+              </div>
+            </div>
+
             <div class="card">
               <div class="card-head"><h2>Java 运行时</h2><button class="btn-sm" id="btnRescanJava">重新扫描</button></div>
               <p class="hint">游戏需要与版本匹配的 Java；1.17+ 需要 Java 17，1.20.5+ 建议 Java 21。</p>
@@ -440,12 +475,12 @@
             <div class="card about-card">
               <div class="card-head">
                 <h2>关于 SMUCL</h2>
-                <span class="chip" id="aboutVersion">v1.5.0</span>
+                <span class="chip" id="aboutVersion">v1.6.0</span>
               </div>
               <div class="about-body">
                 <img class="pixel" src="../assets/logo-mc-128.png" alt="" />
                 <div>
-                  <b>SMUCL <span id="aboutVersionText">1.5.0</span></b>
+                  <b>SMUCL <span id="aboutVersionText">1.6.0</span></b>
                   <p>上海海事大学 Minecraft 启动器。界面参考 SJMC Launcher 的信息层级，采用 Minecraft 风格的像素与斜角视觉。</p>
                   <div class="about-links">
                     <button class="ghost-link" id="btnCheckUpdate">检查更新</button>

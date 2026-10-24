@@ -191,6 +191,8 @@ function build(id, options = {}) {
   const meta = versionLib.loadVersionJson(mcDir, id);
 
   const playerName = (options.playerName || settings.playerName || 'Steve').trim() || 'Steve';
+  // 正版身份由主进程注入；没有就退回离线参数
+  const acc = options.account && options.account.accessToken ? options.account : null;
   const memory = Math.max(1024, Number(options.memory || settings.memory || 4096));
   const javaPath = options.javaPath || settings.javaPath;
   const instanceDir = path.join(mcDir, 'versions', id);
@@ -222,17 +224,17 @@ function build(id, options = {}) {
       : path.join(mcDir, 'assets', 'virtual', assetsName);
 
   const replacements = {
-    '${auth_player_name}': playerName,
+    '${auth_player_name}': acc ? acc.name : playerName,
     '${version_name}': id,
     '${game_directory}': gameDir,
     '${assets_root}': path.join(mcDir, 'assets'),
     '${game_assets}': legacyAssetsRoot,
     '${assets_index_name}': assetsName,
-    '${auth_uuid}': offlineUuid(playerName),
-    '${auth_access_token}': '0',
-    '${auth_session}': '0',
+    '${auth_uuid}': acc ? acc.uuid : offlineUuid(playerName),
+    '${auth_access_token}': acc ? acc.accessToken : '0',
+    '${auth_session}': acc ? acc.accessToken : '0',
     '${clientid}': 'smucl',
-    '${auth_xuid}': '0',
+    '${auth_xuid}': acc && acc.xuid ? acc.xuid : '0',
     '${user_type}': 'msa',
     '${version_type}': meta.type || 'release',
     '${natives_directory}': nativesDir,
@@ -240,7 +242,7 @@ function build(id, options = {}) {
     '${classpath_separator}': path.delimiter,
     '${classpath}': classpath,
     '${launcher_name}': 'SMUCL',
-    '${launcher_version}': '1.5.0',
+    '${launcher_version}': '1.6.0',
     '${user_properties}': '{}',
     '${resolution_width}': String((options.resolution && options.resolution.width) || 925),
     '${resolution_height}': String((options.resolution && options.resolution.height) || 530),
