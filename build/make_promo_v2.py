@@ -22,7 +22,7 @@ DUR = 47.0
 
 LOGO = os.path.join(ROOT, "assets", "logo-mc.png")
 WORDMARK = os.path.join(ROOT, "assets", "wordmark.png")
-MASCOT = os.path.join(ROOT, "assets", "mascot-badge.png")
+MASCOT = os.path.join(ROOT, "promo", "mascot-badge.png")  # 宣传片专用，不进安装包
 SHOTS = os.path.join(ROOT, "build", "promo2")
 
 FONT_CN_B = "C:/Windows/Fonts/msyhbd.ttc"
