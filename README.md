@@ -141,6 +141,9 @@ SMUCL/
 发版流程：改 `package.json` 版本 → 在 `renderer/changelog.js` 顶部加一条 → `node build/package.js`
 → 把 `dist/app-<version>.zip` 上传到对应 Release。
 
+**下载落地页**：改 `site-download/index.html` → `node build/publish_pages.js` → 约 1 分钟后生效
+https://survaetr.github.io/SMUCL/ （GitHub Pages，内容放在 `gh-pages` 分支根目录）。
+
 ## 更新记录
 
 **v1.8.1**
