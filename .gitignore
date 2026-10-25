@@ -28,3 +28,9 @@ build/*.jpg
 
 # 1.5.0 宣传片产物（视频与静帧太大，不入库）
 build/promo2/
+
+# 已发布应用的标记文件（WorkBuddy 内部产物）
+.wbapp_*.genie
+
+# 落地页整页截图
+build/site-shots/
