@@ -9,7 +9,7 @@
 [![Electron](https://img.shields.io/badge/Electron-45-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6?logo=windows&logoColor=white)](#)
 [![License](https://img.shields.io/badge/license-MIT-3DA639)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.7.0-3b7dd8](#)
+[![Version](https://img.shields.io/badge/version-1.8.0-3b7dd8](#)
 [![Release](https://img.shields.io/github/v/release/Survaetr/SMUCL?label=release&color=3DA639)](https://github.com/Survaetr/SMUCL/releases)
 
 </div>
@@ -32,6 +32,7 @@
 | 存档 | 扫描所有目录与实例的 `saves`，解析 `level.dat` 得到世界名、版本、模式、最后游玩；支持按文件夹（实例）/ 版本 / 时间分组、定位与移至回收站 |
 | 下载游戏 | 拉取 Mojang 版本清单，按正式版 / 快照 / 旧版筛选，逐行进度条安装；中断的实例显示「修复」；可在线安装 Fabric / Quilt / Forge / NeoForge 加载器（底座缺失自动补装） |
 | 整合包 | 从 Modrinth / CurseForge 搜索并一键安装，自动补原版与加载器，建版本隔离实例；支持导入 / 导出本地 zip |
+| 资源下载 | 从 Modrinth 搜索模组 / 光影 / 材质包，按实例的版本与加载器筛选，自动补齐依赖后装入对应目录 |
 | 账号 | 微软正版登录（设备码流程），令牌用系统凭据加密保存；离线账户照旧可用 |
 | 设置 | Java 运行时扫描与指定、内存、JVM 参数、全屏、显卡偏好（写入 Windows 图形设置）、下载源、并发数、游戏目录管理、自动检查新版本 |
 | 主题 | 深色 / 浅色 / 跟随系统，标题栏右上角一键切换 |
@@ -140,6 +141,15 @@ SMUCL/
 → 把 `dist/app-<version>.zip` 上传到对应 Release。
 
 ## 更新记录
+
+**v1.8.0**
+
+- 新增「资源」页：从 Modrinth 下载模组、光影、材质包
+- 按实例自动预填游戏版本与加载器，可用筛选器切换；安装目标可在页内直接选
+- 模组自动解析并安装 required 依赖（同一层并发查询）
+- 安装目录与启动参数保持一致：隔离实例装进 `versions/<id>/`，非隔离装进游戏根目录
+- 文件按 sha1 校验，已存在且一致则跳过；下载地址限定在 Modrinth CDN
+- 实例新增「原版版本」推断：读 `--fml.mcVersion` 参数，Fabric 从实例名提取
 
 **v1.7.0**
 

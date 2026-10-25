@@ -112,6 +112,39 @@ function countEntries(dir) {
  * 扫描多个游戏目录下的实例
  * @param {Array<{path:string,name:string,kind:string}>} gameDirs
  */
+/**
+ * 推断实例对应的原版版本。
+ *
+ * 优先级很关键：PCL 生成的整合包 JSON 会把公共库内联，里面没有
+ * `net.neoforged:neoforge:X` 这种主坐标，只能靠启动参数。
+ * 而 `--fml.mcVersion` 是 Forge / NeoForge 启动器的必传项，值是写死的实际版本。
+ *
+ * 顺序：--fml.mcVersion → 加载器主库坐标 → 实例名里的版本号（Fabric 靠这个）
+ */
+function guessMcVersion(id, json) {
+  const args = (json && json.arguments && json.arguments.game) || [];
+  for (let i = 0; i < args.length - 1; i++) {
+    if (args[i] === '--fml.mcVersion' && typeof args[i + 1] === 'string' && /^[\d.]{2,10}$/.test(args[i + 1])) {
+      return args[i + 1];
+    }
+  }
+
+  const names = ((json && json.libraries) || []).map((l) => String((l && l.name) || ''));
+  for (const n of names) {
+    const neo = n.match(/^net\.neoforged:neoforge:([\d.]+)/);
+    if (neo) {
+      const [a, b] = neo[1].split('.');
+      if (a && b) return Number(a) >= 26 ? `${a}.${b}` : `1.${a}.${b}`;
+    }
+    const forge = n.match(/^net\.minecraftforge:forge:(1\.[\d.]+)-/);
+    if (forge) return forge[1];
+  }
+
+  // Fabric / Quilt 实例名一般形如 fabric-loader-0.20.1-1.21.1
+  const m = String(id || '').match(/\b(1\.\d{1,2}(?:\.\d{1,2})?)\b/);
+  return m ? m[1] : '';
+}
+
 function listInstalled(gameDirs) {
   const dirs = Array.isArray(gameDirs)
     ? gameDirs
@@ -156,6 +189,7 @@ function listInstalled(gameDirs) {
         type: json.type || 'release',
         mainClass: json.mainClass || '',
         javaMajor: (json.javaVersion && json.javaVersion.majorVersion) || 8,
+        mcVersion: guessMcVersion(id, json) || guessMcVersion(json.inheritsFrom, null),
         inheritsFrom: json.inheritsFrom || '',
         loader: loaderOf(id, json.mainClass),
         hasJar: fs.existsSync(path.join(instDir, `${id}.jar`)),
@@ -256,6 +290,7 @@ function mergeVersion(parent, child) {
 
 module.exports = {
   getManifest,
+  guessMcVersion,
   getVersionMeta,
   listInstalled,
   loadVersionJson,

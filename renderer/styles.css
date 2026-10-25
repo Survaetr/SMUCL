@@ -1360,3 +1360,57 @@ html[data-theme="light"] .pack-notice { color: #6b5327; }
   font-size: 11px; color: var(--txt-2);
   font-family: var(--font-num); min-width: 78px; text-align: right;
 }
+
+/* =========================================================
+   资源下载（模组 / 光影 / 材质包）
+   ========================================================= */
+.content-filters {
+  display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--card-sunken);
+}
+.filter-field { display: flex; flex-direction: column; gap: 5px; }
+.filter-field > span { font-size: 10.5px; color: var(--dim); letter-spacing: 0.3px; }
+.filter-field select {
+  height: 32px; min-width: 118px; padding: 0 28px 0 10px;
+  border-radius: 8px; border: 1px solid var(--line-2);
+  background: var(--card); color: var(--txt);
+  font-size: 12.5px; font-family: var(--font-num);
+  appearance: none; cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--dim) 50%),
+    linear-gradient(135deg, var(--dim) 50%, transparent 50%);
+  background-position: calc(100% - 15px) 14px, calc(100% - 10px) 14px;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+.filter-field select:focus { outline: none; border-color: var(--brand-2); }
+.filter-field[hidden] { display: none; }
+
+.content-target {
+  margin-left: auto;
+  display: flex; flex-direction: column; gap: 5px;
+  min-width: 0; max-width: 320px;
+}
+.content-target > span { font-size: 10.5px; color: var(--dim); letter-spacing: 0.3px; }
+.content-target > b {
+  font-size: 12.5px; color: var(--brand-2); font-weight: 500;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* 版本列表弹窗：项目多时内部滚动，别把整个弹窗撑爆 */
+.pack-ver-list {
+  max-height: 46vh;
+  overflow-y: auto;
+  margin: 0 -4px;
+  padding: 0 4px;
+}
+.pack-ver-list .pack-ver-row {
+  cursor: pointer;
+  border-radius: 7px;
+  padding: 8px 8px;
+}
+.pack-ver-list .pack-ver-row:hover { background: rgba(var(--ink), 0.06); }
+.pack-ver-list .pack-ver-row b { max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

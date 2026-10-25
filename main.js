@@ -16,6 +16,7 @@ const updater = require('./core/updater');
 const gpuLib = require('./core/gpu');
 const packLib = require('./core/pack');
 const exportLib = require('./core/export');
+const contentLib = require('./core/content');
 const loadersLib = require('./core/loaders');
 const modrinthLib = require('./core/modrinth');
 const curseforgeLib = require('./core/curseforge');
@@ -1192,6 +1193,66 @@ function registerIpc() {
       await refreshJava().catch(() => {});
     }
     return r;
+  });
+
+  // ---------------- 资源下载（模组 / 光影 / 材质包） ----------------
+  handle('content:search', async (_e, { kind, query, mcVersion, loader, offset, sort } = {}) => {
+    try {
+      return {
+        ok: true,
+        data: await contentLib.search(kind, { query, mcVersion, loader, offset, sort }),
+      };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  handle('content:versions', async (_e, { kind, projectId, mcVersion, loader } = {}) => {
+    try {
+      if (!projectId || typeof projectId !== 'string') throw new Error('缺少项目 ID');
+      return { ok: true, data: await contentLib.versions(projectId, { mcVersion, loader, kind }) };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  handle('content:plan', async (_e, { dir, instanceId, kind, versionId, mcVersion, loader } = {}) => {
+    try {
+      const gameDir = dir ? assertInGameDirs(dir, '游戏目录') : path.resolve(settingsLib.all().mcDir);
+      const p = await contentLib.plan({
+        gameDir,
+        instanceId: safe.assertVersionId(instanceId),
+        kind,
+        versionId,
+        mcVersion,
+        loader,
+      });
+      return { ok: true, data: p };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  handle('content:install', async (_e, { dir, instanceId, kind, versionId, mcVersion, loader, planned } = {}) => {
+    const gameDir = dir ? assertInGameDirs(dir, '游戏目录') : path.resolve(settingsLib.all().mcDir);
+    const send = (p) => {
+      if (win && !win.isDestroyed()) win.webContents.send('content:progress', p);
+    };
+    try {
+      return await contentLib.install({
+        gameDir,
+        instanceId: safe.assertVersionId(instanceId),
+        kind,
+        versionId,
+        mcVersion,
+        loader,
+        planned,
+        onProgress: send,
+      });
+    } catch (e) {
+      send({ stage: 'error', message: e.message });
+      return { ok: false, error: e.message };
+    }
   });
 
   // ---------------- 导出整合包 ----------------

@@ -310,6 +310,10 @@ function switchView(name) {
   $('.content').scrollTop = 0;
   if (name === 'saves' && S.saves === null) loadSaves({ quiet: true });
   if (name === 'packs' && !S.packHits.length) renderPackResults();
+  if (name === 'content') {
+    renderContentFilters();
+    if (!S.contentHits.length) renderContentResults();
+  }
   if (name === 'versions') refreshSizes();
 }
 
@@ -888,6 +892,14 @@ async function startPackInstall(hit, ver, mcVersion) {
   };
   paint(1, '准备中…');
 
+  api.onContentProgress((p) => {
+    const bar = $('#modalBody .exp-progress');
+    if (!bar || bar.hidden) return;
+    const pct = Math.max(0, Math.min(100, p.percent || 0));
+    bar.querySelector('i').style.width = `${pct}%`;
+    bar.querySelector('span').textContent = p.message ? p.message : `${pct}%`;
+  });
+
   api.onExportProgress((p) => {
     const bar = $('#modalBody .exp-progress');
     if (!bar || bar.hidden) return;
@@ -953,6 +965,264 @@ async function startPackInstall(hit, ver, mcVersion) {
   refreshInstalledAndRender();
 }
 
+
+/* ---------------------------------------------------------------- 资源下载（模组 / 光影 / 材质包） */
+S.contentKind = 'mod';
+S.contentHits = [];
+
+/** 当前选中的实例；资源页的所有操作都以它为安装目标 */
+function contentContext() {
+  return S.installed.find((v) => `${v.dir}|${v.id}` === S.selected) || null;
+}
+
+/** 游戏版本下拉：正式版清单 + 实例自身的版本（可能在清单之外，例如 26.2） */
+function renderContentFilters() {
+  const sel = $('#contentMc');
+  if (!sel) return;
+  const cur = contentContext();
+  const releases = ((S.manifest && S.manifest.versions) || []).filter((v) => v.type === 'release');
+  const keep = sel.value || (cur && cur.mcVersion) || '';
+  const opts = releases.map((v) => v.id);
+  if (cur && cur.mcVersion && !opts.includes(cur.mcVersion)) opts.unshift(cur.mcVersion);
+  sel.innerHTML = opts.length
+    ? opts.map((id) => `<option value="${esc(id)}">${esc(id)}</option>`).join('')
+    : '<option value="">（版本清单未加载）</option>';
+  if (keep && Array.from(sel.options).some((o) => o.value === keep)) sel.value = keep;
+
+  // 模组才需要按加载器筛选；光影/材质包的 loaders 是 iris/optifine，与实例无关
+  $('#contentLoaderWrap').hidden = S.contentKind !== 'mod';
+  if (S.contentKind === 'mod' && !$('#contentLoader').value && cur && cur.loader) {
+    const hit = Array.from($('#contentLoader').options).find((o) => o.value === cur.loader);
+    if (hit) $('#contentLoader').value = cur.loader;
+  }
+
+  // 安装目标可在本页直接切换，不必回首页
+  const target = $('#contentTarget');
+  if (target) {
+    const keepTarget = S.selected || (cur ? `${cur.dir}|${cur.id}` : '');
+    target.innerHTML = S.installed.length
+      ? S.installed
+          .map((v) => `<option value="${esc(`${v.dir}|${v.id}`)}">${esc(v.id)}</option>`)
+          .join('')
+      : '<option value="">（没有实例）</option>';
+    if (keepTarget && Array.from(target.options).some((o) => o.value === keepTarget)) {
+      target.value = keepTarget;
+    }
+  }
+}
+
+function renderContentResults(loading) {
+  const grid = $('#contentGrid');
+  const empty = $('#contentEmpty');
+  if (!grid) return;
+
+  if (loading) {
+    grid.innerHTML = '';
+    empty.hidden = false;
+    $('#contentEmptyTitle').textContent = '正在搜索…';
+    $('#contentEmptyText').textContent = '请求 Modrinth';
+    return;
+  }
+  if (!S.contentHits.length) {
+    grid.innerHTML = '';
+    empty.hidden = false;
+    $('#contentEmptyTitle').textContent = '没有结果';
+    $('#contentEmptyText').textContent = '换个关键词，或把游戏版本 / 加载器改成「不限」再试。';
+    return;
+  }
+
+  empty.hidden = true;
+  grid.innerHTML = S.contentHits
+    .map(
+      (h) => `
+      <div class="pack-card" data-id="${esc(h.id)}">
+        <img src="${esc(h.icon || '')}" alt="" />
+        <div class="pack-info">
+          <b>${esc(h.title)}</b>
+          <p>${esc(h.description || '')}</p>
+          <div class="pack-meta">
+            <span>↓ ${fmtCount(h.downloads)}</span>
+            <span>${esc((h.categories || []).slice(0, 2).join(' · '))}</span>
+          </div>
+        </div>
+      </div>`
+    )
+    .join('');
+
+  // CSP 禁止内联 onerror
+  grid.querySelectorAll('img').forEach((img) => {
+    img.addEventListener('error', () => {
+      img.style.visibility = 'hidden';
+    });
+  });
+}
+
+async function searchContent() {
+  renderContentResults(true);
+  const r = await api.contentSearch({
+    kind: S.contentKind,
+    query: $('#contentSearch').value.trim(),
+    mcVersion: $('#contentMc').value,
+    loader: S.contentKind === 'mod' ? $('#contentLoader').value : '',
+    sort: $('#contentSort').value,
+  });
+  if (!r.ok) {
+    S.contentHits = [];
+    renderContentResults();
+    toast(r.error, 'err');
+    return;
+  }
+  S.contentHits = r.data.hits;
+  renderContentResults();
+}
+
+async function openContentVersions(hit) {
+  const mc = $('#contentMc').value;
+  const loader = S.contentKind === 'mod' ? $('#contentLoader').value : '';
+  const r = await api.contentVersions({ kind: S.contentKind, projectId: hit.id, mcVersion: mc, loader });
+  if (!r.ok) {
+    toast(r.error, 'err');
+    return;
+  }
+  const vs = r.data;
+  if (!vs.length) {
+    toast('没有匹配当前筛选的版本，试试放宽游戏版本或加载器', 'warn');
+    return;
+  }
+
+  const rows = vs
+    .slice(0, 60)
+    .map(
+      (v, i) => `
+      <div class="pack-ver-row" data-i="${i}">
+        <b>${esc(v.number)}</b>
+        <span>${esc((v.gameVersions || []).slice(-2).join(' / '))}</span>
+        <em>${esc(v.type)}</em>
+      </div>`
+    )
+    .join('');
+
+  openModal({
+    title: hit.title,
+    sub: `${vs.length} 个匹配版本${vs.length > 60 ? '（列出前 60 个）' : ''}`,
+    html: `<div class="pack-ver-list">${rows}</div>`,
+    buttons: [{ text: '关闭', onClick: closeModal }],
+  });
+
+  $$('#modalBody .pack-ver-row').forEach((row) => {
+    row.onclick = () => planContentInstall(hit, vs[Number(row.dataset.i)]);
+  });
+}
+
+async function planContentInstall(hit, version) {
+  const cur = contentContext();
+  if (!cur) {
+    toast('请先在首页选择一个实例，再安装到它', 'warn');
+    return;
+  }
+  if (!version.file) {
+    toast('这个版本没有可下载的文件', 'err');
+    return;
+  }
+
+  openModal({
+    title: '准备安装',
+    sub: `${hit.title} · ${version.number}`,
+    html: '<p class="pack-tip">正在解析依赖…</p>',
+    buttons: [{ text: '取消', onClick: closeModal }],
+  });
+
+  // 依赖解析要串几次 API，给个上限，避免网络差时弹窗一直停在「解析中」
+  const r = await Promise.race([
+    api.contentPlan({
+      dir: cur.dir,
+      instanceId: cur.id,
+      kind: S.contentKind,
+      versionId: version.id,
+      mcVersion: $('#contentMc').value,
+      loader: S.contentKind === 'mod' ? $('#contentLoader').value : '',
+    }),
+    new Promise((resolve) => setTimeout(() => resolve({ ok: false, error: '解析超时，请重试' }), 25000)),
+  ]);
+  if (!r.ok) {
+    closeModal();
+    toast(r.error, 'err');
+    return;
+  }
+  const p = r.data;
+  S.contentPlan = p;
+  const total = p.files.reduce((n, f) => n + f.size, 0);
+  const deps = p.files.filter((f) => f.dependency);
+
+  const list = p.files
+    .map(
+      (f) => `<div class="pack-ver-row">
+        <b class="ellipsis" title="${esc(f.name)}">${esc(f.name)}</b>
+        <span>${f.dependency ? '依赖' : '主文件'}</span>
+        <em>${fmtBytes(f.size)}</em>
+      </div>`
+    )
+    .join('');
+
+  openModal({
+    title: '准备安装',
+    sub: `${hit.title} · ${version.number}`,
+    html: `
+      <div class="pack-preview">
+        <div class="pack-row"><span>文件</span><b>${p.files.length} 个${deps.length ? `（含 ${deps.length} 个依赖）` : ''}</b></div>
+        <div class="pack-row"><span>总体积</span><b>${fmtBytes(total)}</b></div>
+        <div class="pack-row"><span>安装到</span><b class="ellipsis" title="${esc(p.dir)}">${esc(p.dir)}</b></div>
+      </div>
+      <div class="pack-ver-list" style="margin-top:10px">${list}</div>
+      ${p.warnings.length ? `<div class="pack-warn">${p.warnings.map((w) => esc(w)).join('<br>')}</div>` : ''}
+      ${p.isolated ? '' : '<div class="pack-warn">该实例未启用版本隔离，文件会装到游戏根目录，由所有实例共用。</div>'}
+      <div class="exp-progress" hidden><div class="exp-bar"><i></i></div><span>0%</span></div>
+    `,
+    buttons: [
+      { text: '取消', onClick: closeModal },
+      { text: '开始安装', primary: true, onClick: () => runContentInstall(hit, version) },
+    ],
+  });
+}
+
+async function runContentInstall(hit, version) {
+  const cur = contentContext();
+  if (!cur) return;
+
+  const bar = $('#modalBody .exp-progress');
+  if (bar) bar.hidden = false;
+  $$('#modalFoot button').forEach((b) => {
+    b.disabled = true;
+  });
+
+  const r = await api.contentInstall({
+    dir: cur.dir,
+    instanceId: cur.id,
+    kind: S.contentKind,
+    versionId: version.id,
+    mcVersion: $('#contentMc').value,
+    loader: S.contentKind === 'mod' ? $('#contentLoader').value : '',
+    planned: S.contentPlan, // 复用刚解析好的清单，省一轮 API 往返
+  });
+
+  $$('#modalFoot button').forEach((b) => {
+    b.disabled = false;
+  });
+
+  S.contentPlan = null;
+  if (r.ok) {
+    closeModal();
+    const extra = r.data.dependencies ? `（含 ${r.data.dependencies} 个依赖）` : '';
+    toast(`已安装 ${r.data.installed} 个文件${extra}`, 'ok');
+    if (r.data.failed && r.data.failed.length) {
+      toast(`${r.data.failed.length} 个文件下载失败，可重试`, 'warn');
+    }
+    refreshInstalledAndRender();
+  } else {
+    toast(r.error, 'err');
+    if (bar) bar.hidden = true;
+  }
+}
 
 /* ---------------------------------------------------------------- 导出整合包 */
 async function exportPackFlow(v) {
@@ -1540,6 +1810,7 @@ async function refreshInstalledAndRender() {
     renderAll();
     renderDownloadList();
     renderLoaderCard();
+    renderContentFilters();
   }
 }
 
@@ -1669,6 +1940,7 @@ function bindEvents() {
     S.selected = e.target.value;
     renderPlaySelect();
     renderJavaSummary(); // 不同实例的 Java 需求不同，摘要要跟着变
+    if ($('#contentMc')) renderContentFilters();
   };
 
   const saveName = debounce((name) => {
@@ -1810,6 +2082,42 @@ function bindEvents() {
   api.onAuthFailed((p) => {
     closeModal();
     toast((p && p.error) || '登录失败', 'err');
+  });
+
+  // 资源下载
+  $$('#contentKind .seg').forEach((b) => {
+    b.onclick = () => {
+      if (S.contentKind === b.dataset.kind) return;
+      S.contentKind = b.dataset.kind;
+      $$('#contentKind .seg').forEach((x) => x.classList.toggle('active', x === b));
+      S.contentHits = [];
+      renderContentFilters();
+      renderContentResults();
+      searchContent();
+    };
+  });
+  $('#btnContentSearch').onclick = searchContent;
+  $('#contentSearch').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.isComposing) searchContent();
+  });
+  $('#contentTarget').onchange = () => {
+    S.selected = $('#contentTarget').value;
+    renderPlaySelect();
+    renderJavaSummary();
+    // 新实例的版本/加载器可能不同，先清空再让 renderContentFilters 按它预填
+    $('#contentMc').value = '';
+    $('#contentLoader').value = '';
+    renderContentFilters();
+    if (S.contentHits.length) searchContent();
+  };
+  $('#contentMc').onchange = () => searchContent();
+  $('#contentLoader').onchange = () => searchContent();
+  $('#contentSort').onchange = () => searchContent();
+  $('#contentGrid').addEventListener('click', (e) => {
+    const card = e.target.closest('.pack-card');
+    if (!card) return;
+    const hit = S.contentHits.find((h) => h.id === card.dataset.id);
+    if (hit) openContentVersions(hit);
   });
 
   // 整合包商店

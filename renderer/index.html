@@ -65,6 +65,10 @@
             <svg viewBox="0 0 24 24"><path d="M3.5 8.5 12 4l8.5 4.5v7L12 20l-8.5-4.5z" /><path d="M3.5 8.5 12 13l8.5-4.5" /><path d="M12 13v7" /><path d="M7.7 6.2 16.3 11" /></svg>
             <span>整合包</span>
           </button>
+          <button class="nav-item" data-view="content">
+            <svg viewBox="0 0 24 24"><path d="M12 3.2 20 7.6v8.8L12 20.8 4 16.4V7.6z" /><path d="M4 7.6 12 12l8-4.4" /><path d="M12 12v8.8" /><path d="M9.6 5.4 17.6 9.8" /></svg>
+            <span>资源</span>
+          </button>
           <button class="nav-item" data-view="saves">
             <svg viewBox="0 0 24 24"><path d="M4 7.5 12 4l8 3.5v9L12 20l-8-3.5z" /><path d="M4 7.5 12 11l8-3.5" /><path d="M12 11v9" /></svg>
             <span>存档</span>
@@ -86,7 +90,7 @@
             <span class="badge-offline">本地</span>
           </div>
           <button class="update-pill" id="updatePill" hidden>发现新版本</button>
-          <div class="side-hint">SMUCL v1.7.0 · 基于 Electron</div>
+          <div class="side-hint">SMUCL v1.8.0 · 基于 Electron</div>
         </div>
       </aside>
 
@@ -175,7 +179,7 @@
               </div>
 
               <div class="card notice-card">
-                <div class="card-head"><h2>公告</h2><span class="chip">v1.7.0</span></div>
+                <div class="card-head"><h2>公告</h2><span class="chip">v1.8.0</span></div>
                 <ul class="notice-list">
                   <li>
                     <b>镜像加速已开启</b>
@@ -301,6 +305,65 @@
             <img class="pixel" src="../assets/logo-mc-128.png" alt="" />
             <b id="packEmptyTitle">还没有搜索</b>
             <p id="packEmptyText">输入关键词后点搜索，结果会显示在这里。</p>
+          </div>
+        </section>
+
+        <!-- ---------- 资源（模组 / 光影 / 材质包） ---------- -->
+        <section class="view" id="view-content">
+          <div class="view-head">
+            <div>
+              <h1>资源</h1>
+              <p>从 Modrinth 下载模组、光影、材质包，自动补齐依赖并装进所选实例。</p>
+            </div>
+            <div class="segmented" id="contentKind">
+              <button class="seg active" data-kind="mod">模组</button>
+              <button class="seg" data-kind="shader">光影</button>
+              <button class="seg" data-kind="resourcepack">材质包</button>
+            </div>
+          </div>
+
+          <div class="toolbar">
+            <input class="input search" id="contentSearch" placeholder="搜索项目，例如 sodium、Complementary" />
+            <div class="toolbar-right">
+              <button class="btn-sm primary" id="btnContentSearch">搜索</button>
+            </div>
+          </div>
+
+          <div class="content-filters">
+            <label class="filter-field">
+              <span>游戏版本</span>
+              <select id="contentMc"></select>
+            </label>
+            <label class="filter-field" id="contentLoaderWrap">
+              <span>加载器</span>
+              <select id="contentLoader">
+                <option value="">不限</option>
+                <option value="Fabric">Fabric</option>
+                <option value="NeoForge">NeoForge</option>
+                <option value="Forge">Forge</option>
+                <option value="Quilt">Quilt</option>
+              </select>
+            </label>
+            <label class="filter-field">
+              <span>排序</span>
+              <select id="contentSort">
+                <option value="relevance">相关度</option>
+                <option value="downloads">下载量</option>
+                <option value="follows">收藏数</option>
+                <option value="newest">最新发布</option>
+              </select>
+            </label>
+            <label class="filter-field content-target">
+              <span>安装到</span>
+              <select id="contentTarget"></select>
+            </label>
+          </div>
+
+          <div class="pack-grid" id="contentGrid"></div>
+          <div class="empty" id="contentEmpty" hidden>
+            <img class="pixel" src="../assets/logo-mc-128.png" alt="" />
+            <b id="contentEmptyTitle">还没有搜索</b>
+            <p id="contentEmptyText">输入关键词后点搜索，结果会显示在这里。</p>
           </div>
         </section>
 
@@ -475,12 +538,12 @@
             <div class="card about-card">
               <div class="card-head">
                 <h2>关于 SMUCL</h2>
-                <span class="chip" id="aboutVersion">v1.7.0</span>
+                <span class="chip" id="aboutVersion">v1.8.0</span>
               </div>
               <div class="about-body">
                 <img class="pixel" src="../assets/logo-mc-128.png" alt="" />
                 <div>
-                  <b>SMUCL <span id="aboutVersionText">1.7.0</span></b>
+                  <b>SMUCL <span id="aboutVersionText">1.8.0</span></b>
                   <p>上海海事大学 Minecraft 启动器。界面参考 SJMC Launcher 的信息层级，采用 Minecraft 风格的像素与斜角视觉。</p>
                   <div class="about-links">
                     <button class="ghost-link" id="btnCheckUpdate">检查更新</button>
