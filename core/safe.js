@@ -44,13 +44,26 @@ function assertVersionId(id, label = '版本名') {
   return name;
 }
 
-/** 解析符号链接后的绝对路径；目标不存在时退回 resolve */
+/**
+ * 解析符号链接后的绝对路径。
+ * 目标不存在时，先把「最近的已存在祖先」解析成真实路径，再接上剩余片段——
+ * 否则 Windows 的 8.3 短名（C:\Users\SURVAE~1\…）会与真实长名判成两个目录，
+ * 新建文件后 safeJoin 就会误报「超出允许范围」。
+ */
 function realish(p) {
   const abs = path.resolve(p);
-  try {
-    return fs.realpathSync.native(abs);
-  } catch {
-    return abs;
+  const tail = [];
+  let cur = abs;
+  for (;;) {
+    try {
+      const real = fs.realpathSync.native(cur);
+      return tail.length ? path.join(real, ...tail) : real;
+    } catch {
+      const parent = path.dirname(cur);
+      if (parent === cur) return abs;
+      tail.unshift(path.basename(cur));
+      cur = parent;
+    }
   }
 }
 

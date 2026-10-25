@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld('smucl', {
   remove: (id, dir) => ipcRenderer.invoke('version:delete', { id, dir }),
   launch: (id, dir) => ipcRenderer.invoke('game:launch', { id, dir }),
   kill: () => ipcRenderer.invoke('game:kill'),
+  repairDeps: (id, dir) => ipcRenderer.invoke('game:repair', { id, dir }),
   save: (patch) => ipcRenderer.invoke('settings:save', patch),
   pickDir: () => ipcRenderer.invoke('dialog:pickDir'),
   listLoaders: (loader, mc) => ipcRenderer.invoke('loader:list', { loader, mc }),

@@ -10,6 +10,8 @@ const RULES = [
   ['launcher.mojang.com', 'bmclapi2.bangbang93.com', ''],
   ['resources.download.minecraft.net', 'bmclapi2.bangbang93.com', '/assets'],
   ['libraries.minecraft.net', 'bmclapi2.bangbang93.com', '/maven'],
+  // client.jar / server.jar 走 objects 路径；国内直连 piston-data 往往只有几十 KB/s
+  ['piston-data.mojang.com', 'bmclapi2.bangbang93.com', ''],
 ];
 
 const MANIFEST = {

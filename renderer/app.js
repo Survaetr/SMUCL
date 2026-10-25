@@ -2390,6 +2390,39 @@ function bindEvents() {
   $('#btnToggleLog').onclick = () => setLogOpen(false);
   $('#btnClearLog').onclick = () => ($('#logBody').innerHTML = '');
   $('#logFab').onclick = () => setLogOpen(true);
+  $('#btnRepairDeps').onclick = async (e) => {
+    const cur = currentVersion();
+    if (!cur) {
+      toast('请先选择一个版本', 'warn');
+      return;
+    }
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    setLogOpen(true);
+    appendLog(`> 正在检查 ${cur.id} 的依赖…`);
+    const r = await api.repairDeps(cur.id, cur.dir);
+    btn.disabled = false;
+    if (!r.ok) {
+      appendLog(`> 修复失败：${r.error}`);
+      toast(r.error, 'err');
+      return;
+    }
+    if (!r.data.total) {
+      appendLog('> 依赖完整，没有需要补全的文件');
+      if (r.data.diagnose && r.data.diagnose.found === false) {
+        appendLog(`> 但启动主类 ${r.data.diagnose.mainClass} 仍未找到，这个版本的文件可能不是一套，建议重新安装`);
+        toast('依赖完整，但版本文件对不上，建议重新安装', 'warn');
+      } else {
+        toast('依赖完整，无需修复', 'ok');
+      }
+      return;
+    }
+    if (r.data.remaining.length) {
+      toast(`仍有 ${r.data.remaining.length} 个文件补全失败`, 'err');
+    } else {
+      toast(`已补全 ${r.data.fixed} 个依赖文件，可以重新启动`, 'ok');
+    }
+  };
 
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && S.logOpen) setLogOpen(false);

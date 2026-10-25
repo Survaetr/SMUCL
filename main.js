@@ -18,6 +18,7 @@ const packLib = require('./core/pack');
 const exportLib = require('./core/export');
 const contentLib = require('./core/content');
 const loadersLib = require('./core/loaders');
+const repairLib = require('./core/repair');
 const modrinthLib = require('./core/modrinth');
 const curseforgeLib = require('./core/curseforge');
 const safe = require('./core/safe');
@@ -816,13 +817,66 @@ function registerIpc() {
   });
 
   // ---------------- 启动 ----------------
+  /**
+   * 启动前把缺失的依赖补回来。
+   * classpath 只收录磁盘上真实存在的 jar，少一个库，Java 就只会甩一句
+   * 「找不到或无法加载主类」，用户完全看不出是缺文件，所以这一步必须前置。
+   */
+  async function ensureDeps(gameDir, versionId, logLine) {
+    let report;
+    try {
+      report = repairLib.check(gameDir, versionId);
+    } catch {
+      return { ok: true }; // 元数据本身有问题时交给后面的流程报错，不在这里拦
+    }
+
+    if (report.missing.length) {
+      logLine(`> 依赖自检：发现 ${report.missing.length} 个文件缺失，正在从镜像补全…`);
+      const r = await repairLib.fix(gameDir, versionId, ({ done, total, rel }) => {
+        if (done === total || done % 10 === 0) logLine(`> 补全依赖 ${done}/${total} · ${path.basename(rel)}`);
+      });
+      if (r.remaining.length) {
+        return {
+          ok: false,
+          error: `启动失败：${r.remaining.length} 个依赖文件补全失败（例如 ${repairLib.coordOf(
+            r.remaining[0].rel
+          )}）。请检查网络后重试，或在「版本」页重新安装这个版本。`,
+        };
+      }
+      logLine(`> 依赖已补全（${r.fixed} 个文件），继续启动`);
+    }
+
+    // 文件齐了但主类还是不在任何 jar 里，说明这份版本 JSON 和库对不上，先提醒一句
+    const diag = repairLib.diagnose(gameDir, versionId);
+    if (diag.mainClass && diag.found === false) {
+      logLine(`> 提示：启动主类 ${diag.mainClass} 不在 classpath 的任何 jar 里，这个版本的库可能不完整`);
+    }
+    return { ok: true };
+  }
+
+  // 常见崩法一句话解释，省得用户对着 Java 的报错发呆
+  // 只挑判断明确的几条：ClassNotFoundException 在模组缺前置时也会出现，不能一律归因于版本文件
+  const LOG_HINTS = [
+    [
+      /找不到或无法加载主类|Could not find or load main class/i,
+      '版本依赖文件不完整。点日志右上角「修复依赖」可自动补全，或在版本页重新安装该版本。',
+    ],
+    [/UnsupportedClassVersionError/i, 'Java 版本不符，请在「设置 → Java 运行时」里换成本版本要求的版本。'],
+    [/Failed to locate library|UnsatisfiedLinkError/i, '缺少本机 DLL，点日志右上角「修复依赖」重新下载本地库。'],
+    [/IllegalStateException: Duplicate key/i, 'classpath 里有重复的库，点日志右上角「修复依赖」或在版本页重新安装。'],
+  ];
+
   handle('game:launch', async (_e, { id, dir } = {}) => {
     if (gameProc) return { ok: false, error: '游戏已在运行中' };
     const versionId = safe.assertVersionId(id);
     const gameDir = dir ? assertInGameDirs(dir, '游戏目录') : settingsLib.all().mcDir;
     const settings = settingsLib.all();
+    const logLine = (line) => win && !win.isDestroyed() && win.webContents.send('game:log', { line });
     try {
       const meta = versionLib.loadVersionJson(gameDir, versionId);
+
+      const deps = await ensureDeps(gameDir, versionId, logLine);
+      if (!deps.ok) return deps;
 
       if (!javaCache.length) await refreshJava().catch(() => {});
       const required = (meta.javaVersion && meta.javaVersion.majorVersion) || 8;
@@ -859,8 +913,16 @@ function registerIpc() {
         });
       }
 
+      const hinted = new Set();
       const proc = launcher.launch(versionId, runtime, {
-        onLog: (line) => win && !win.isDestroyed() && win.webContents.send('game:log', { line }),
+        onLog: (line) => {
+          logLine(line);
+          for (const [re, hint] of LOG_HINTS) {
+            if (hinted.has(re) || !re.test(line)) continue;
+            hinted.add(re);
+            logLine(`> 提示：${hint}`);
+          }
+        },
         onError: (err) => win && !win.isDestroyed() && win.webContents.send('game:error', { message: err.message }),
         onExit: (code) => {
           gameProc = null;
@@ -884,6 +946,31 @@ function registerIpc() {
       gameProc.kill();
       gameProc = null;
       return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  // 手动补全依赖（日志面板的「修复依赖」）
+  handle('game:repair', async (_e, { id, dir } = {}) => {
+    const versionId = safe.assertVersionId(id);
+    const gameDir = dir ? assertInGameDirs(dir, '游戏目录') : settingsLib.all().mcDir;
+    const logLine = (line) => win && !win.isDestroyed() && win.webContents.send('game:log', { line });
+    try {
+      const before = repairLib.check(gameDir, versionId);
+      if (!before.missing.length) {
+        return { ok: true, data: { total: 0, fixed: 0, remaining: [], diagnose: repairLib.diagnose(gameDir, versionId) } };
+      }
+      logLine(`> 依赖自检：发现 ${before.missing.length} 个文件缺失，正在补全…`);
+      const r = await repairLib.fix(gameDir, versionId, ({ done, total, rel }) => {
+        if (done === total || done % 10 === 0) logLine(`> 补全依赖 ${done}/${total} · ${path.basename(rel)}`);
+      });
+      if (r.remaining.length) {
+        logLine(`> 仍有 ${r.remaining.length} 个文件补全失败，例如 ${repairLib.coordOf(r.remaining[0].rel)}`);
+      } else {
+        logLine(`> 依赖已补全（${r.fixed} 个文件）`);
+      }
+      return { ok: true, data: r };
     } catch (e) {
       return { ok: false, error: e.message };
     }
