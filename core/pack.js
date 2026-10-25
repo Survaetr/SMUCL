@@ -28,6 +28,29 @@ function loaderOf(name) {
   return '';
 }
 
+/**
+ * 从 libraries 判断加载器。
+ * 只靠名字猜在自建整合包里经常失手（包名往往不含 fabric/forge 字样），
+ * 但依赖坐标是客观的。
+ */
+function loaderOfLibraries(libs) {
+  const names = (libs || []).map((l) => String((l && l.name) || ''));
+  if (names.some((n) => n.startsWith('net.neoforged:'))) return 'NeoForge';
+  if (names.some((n) => n.startsWith('net.minecraftforge:forge'))) return 'Forge';
+  if (names.some((n) => n.startsWith('org.quiltmc:quilt-loader'))) return 'Quilt';
+  if (names.some((n) => n.startsWith('net.fabricmc:fabric-loader'))) return 'Fabric';
+  return '';
+}
+
+/** 从实例名里提取原版版本号，例如「测试整合包-1.21.1」→ 1.21.1 */
+function guessMcVersion(...names) {
+  for (const n of names) {
+    const m = String(n || '').match(/\b(1\.\d+(?:\.\d+)?)\b/);
+    if (m) return m[1];
+  }
+  return '';
+}
+
 /** 把 zip 条目统一成 posix 风格，去掉 ./ 前缀；含 .. 或绝对路径的条目直接丢弃 */
 function entryPaths(zip) {
   const out = [];
@@ -139,8 +162,15 @@ function inspect(zipPath) {
       prefix,
       instances: instances.map((i) => i.id),
       id: main.id,
-      mcVersion: (json && (json.inheritsFrom || json.id)) || main.id,
-      loader: loaderOf(main.id) || loaderOf((json && json.id) || ''),
+      mcVersion:
+        (json && json.inheritsFrom) ||
+        guessMcVersion(main.id, json && json.id) ||
+        (json && json.id) ||
+        main.id,
+      loader:
+        loaderOfLibraries(json && json.libraries) ||
+        loaderOf(main.id) ||
+        loaderOf((json && json.id) || ''),
       mods,
       size: totalSize,
       files: items.filter((it) => !it.isDir).length,

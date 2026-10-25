@@ -206,11 +206,41 @@ function loadVersionJson(mcDir, id, depth = 0) {
   return mergeVersion(parent, { ...json, id });
 }
 
+/**
+ * Maven 坐标的匹配键：group:artifact[:classifier]
+ * 官方启动器按这个维度判定"同一个库"，不比较版本号 —— 子版本声明的版本优先。
+ * 缺了这层去重，三层继承（整合包 → 加载器 → 原版）会把同一个 jar 塞进 classpath 两次，
+ * BootStrapLauncher 用 Collectors.toMap 建索引时直接抛 Duplicate key。
+ */
+function libraryKey(lib) {
+  const name = String((lib && lib.name) || '');
+  const parts = name.split(':');
+  if (parts.length < 2) return name;
+  const classifier = parts[3] || '';
+  return `${parts[0]}:${parts[1]}${classifier ? ':' + classifier : ''}`;
+}
+
+function mergeLibraries(parent = [], child = []) {
+  const order = new Map();
+  let seq = 0;
+  for (const lib of parent) {
+    const k = libraryKey(lib);
+    if (!order.has(k)) order.set(k, { lib, seq: seq++ });
+  }
+  for (const lib of child) {
+    const k = libraryKey(lib);
+    const prev = order.get(k);
+    // 同坐标：保留父版本的位置，值被子版本覆盖
+    order.set(k, { lib, seq: prev ? prev.seq : seq++ });
+  }
+  return [...order.values()].sort((a, b) => a.seq - b.seq).map((x) => x.lib);
+}
+
 function mergeVersion(parent, child) {
   const merged = { ...parent, ...child };
   merged.id = child.id;
   merged.inheritsFrom = child.inheritsFrom;
-  merged.libraries = [...(parent.libraries || []), ...(child.libraries || [])];
+  merged.libraries = mergeLibraries(parent.libraries, child.libraries);
   merged.assetIndex = child.assetIndex || parent.assetIndex;
   merged.assets = child.assets || parent.assets;
   merged.downloads = { ...(parent.downloads || {}), ...(child.downloads || {}) };

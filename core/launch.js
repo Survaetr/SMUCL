@@ -100,6 +100,24 @@ function nativesAllowed(name) {
  * 返回 { classpath, nativeJars }：natives 包不进 classpath，改为解压到 natives 目录，
  * 与官方启动器行为一致（LWJGL 2 只认 java.library.path，不认 classpath）。
  */
+/**
+ * classpath 不能有重复条目：
+ * BootstrapLauncher 会把 classpath 映射成 module path，内部用 Collectors.toMap 建索引，
+ * 同一个 jar 出现两次就抛 IllegalStateException: Duplicate key，表现为闪退、无日志。
+ * Windows 路径大小写不敏感，按小写比较。
+ */
+function dedupePaths(list) {
+  const seen = new Set();
+  const out = [];
+  for (const p of list) {
+    const key = p.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(p);
+  }
+  return out;
+}
+
 function libraryEntries(meta, mcDir) {
   const classpath = [];
   const nativeJars = [];
@@ -128,8 +146,8 @@ function libraryEntries(meta, mcDir) {
     }
   }
   return {
-    classpath: classpath.filter((p) => fs.existsSync(p)),
-    nativeJars: nativeJars.filter((p) => fs.existsSync(p)),
+    classpath: dedupePaths(classpath.filter((p) => fs.existsSync(p))),
+    nativeJars: dedupePaths(nativeJars.filter((p) => fs.existsSync(p))),
   };
 }
 
@@ -242,7 +260,7 @@ function build(id, options = {}) {
     '${classpath_separator}': path.delimiter,
     '${classpath}': classpath,
     '${launcher_name}': 'SMUCL',
-    '${launcher_version}': '1.6.0',
+    '${launcher_version}': '1.7.0',
     '${user_properties}': '{}',
     '${resolution_width}': String((options.resolution && options.resolution.width) || 925),
     '${resolution_height}': String((options.resolution && options.resolution.height) || 530),

@@ -405,6 +405,7 @@ function renderInstalled() {
           <button class="btn-sm btn-primary" data-act="launch">启动</button>
           <button class="btn-sm" data-act="folder">目录</button>
           <button class="btn-sm" data-act="copy">命令</button>
+          <button class="btn-sm" data-act="export">导出</button>
           <button class="btn-sm btn-danger" data-act="remove">删除</button>
         </div>
       </div>`;
@@ -421,9 +422,43 @@ function patchSize(key, size) {
 
 function renderJavaSummary() {
   const s = S.settings;
-  const picked = s.javaPath ? S.javaList.find((j) => j.path === s.javaPath || j.java === s.javaPath) : null;
-  const show = picked || S.javaList[0];
-  $('#kvJava').textContent = show ? `Java ${show.major} (${show.version})` : '未检测到';
+  const list = S.javaList || [];
+  const manual = s.javaPath
+    ? list.find((j) => j.path === s.javaPath || j.java === s.javaPath)
+    : null;
+
+  // 没有手动指定时，实际用的是"按当前实例的 Java 需求自动挑"的那个，
+  // 而不是列表里最新的那个 —— 直接显示最高版本会让人误以为用 Java 25 跑 1.21.1
+  const cur = S.installed.find((v) => `${v.dir}|${v.id}` === S.selected);
+  const required = cur ? cur.javaMajor : 0;
+  const auto = required
+    ? list.find((j) => j.major === required) ||
+      list
+        .filter((j) => j.major > required && j.major <= required + 2)
+        .sort((a, b) => a.major - b.major)[0] ||
+      null
+    : list[0];
+
+  const el = $('#kvJava');
+  const detected = list.length ? list.map((j) => `Java ${j.major}`).join(' / ') : '无';
+
+  if (manual) {
+    el.textContent = `Java ${manual.major} · 已指定`;
+    el.title = `${manual.path || manual.java}\n启动所有版本都用它`;
+  } else if (!list.length) {
+    el.textContent = '未检测到';
+    el.title = '点「重新检测 Java」或到设置里手动指定';
+  } else if (required && !auto) {
+    el.textContent = `缺 Java ${required}`;
+    el.title = `当前实例需要 Java ${required}\n已检测：${detected}`;
+  } else if (auto) {
+    el.textContent = `Java ${auto.major} · 自动`;
+    el.title = `当前实例需要 Java ${required || '未声明'}\n已检测：${detected}\n启动时按版本需求自动挑选`;
+  } else {
+    el.textContent = '未检测到';
+    el.title = detected;
+  }
+
   $('#kvVersions').textContent = `${S.installed.length} 个`;
   $('#kvMemory').textContent = `${(s.memory / 1024).toFixed(1).replace('.0', '')} GB`;
   const dir = s.mcDir || '';
@@ -853,6 +888,14 @@ async function startPackInstall(hit, ver, mcVersion) {
   };
   paint(1, '准备中…');
 
+  api.onExportProgress((p) => {
+    const bar = $('#modalBody .exp-progress');
+    if (!bar || bar.hidden) return;
+    const pct = Math.max(0, Math.min(100, p.percent || 0));
+    bar.querySelector('i').style.width = `${pct}%`;
+    bar.querySelector('span').textContent = p.message ? p.message : `${pct}%`;
+  });
+
   const off = api.onPack((p) => {
     if (!p) return;
     if (p.stage === 'error') return;
@@ -910,6 +953,86 @@ async function startPackInstall(hit, ver, mcVersion) {
   refreshInstalledAndRender();
 }
 
+
+/* ---------------------------------------------------------------- 导出整合包 */
+async function exportPackFlow(v) {
+  const r = await api.exportPlan(v.dir, v.id);
+  if (!r.ok) {
+    toast(r.error, 'err');
+    return;
+  }
+  const p = r.data;
+
+  const rows = p.items
+    .map(
+      (it) => `
+      <label class="exp-row ${it.available ? '' : 'disabled'}">
+        <input type="checkbox" data-key="${esc(it.key)}" ${it.enabled ? 'checked' : ''} ${it.available ? '' : 'disabled'} />
+        <span class="exp-label">${esc(it.label)}</span>
+        <span class="exp-meta">${it.available ? `${it.files} 个文件 · ${fmtBytes(it.bytes)}` : '没有内容'}</span>
+      </label>`
+    )
+    .join('');
+
+  // 非隔离实例的内容在游戏根目录，属于所有实例共用，导不出去
+  const warn = p.isolated
+    ? ''
+    : `<div class="pack-warn">这个实例没有开启版本隔离，mods / config 位于游戏根目录、由所有实例共用，不会被打进包内。若要完整导出，请先把该实例设为版本隔离。</div>`;
+
+  openModal({
+    title: '导出整合包',
+    sub: p.id,
+    html: `
+      <div class="pack-preview">
+        ${p.mc ? `<div class="pack-row"><span>游戏版本</span><b>${esc(p.mc)}</b></div>` : ''}
+        <div class="pack-row"><span>加载器</span><b>${esc(p.loader || '原版')}</b></div>
+        <div class="pack-row"><span>需要 Java</span><b>${p.java} 或更高</b></div>
+      </div>
+      <p class="pack-tip" style="margin-top:9px">始终包含版本定义与说明；不含 jar 和公共库（首次启动自动补齐）。</p>
+      <div class="exp-list">${rows}</div>
+      ${warn}
+      <div class="exp-progress" hidden><div class="exp-bar"><i></i></div><span>0%</span></div>
+    `,
+    buttons: [
+      { text: '取消', onClick: closeModal },
+      { text: '选择位置并导出', primary: true, onClick: () => runPackExport(v) },
+    ],
+  });
+}
+
+async function runPackExport(v) {
+  const include = {};
+  $$('#modalBody input[data-key]').forEach((el) => {
+    include[el.dataset.key] = el.checked;
+  });
+
+  const picked = await api.exportPick(`${v.id}-整合包`);
+  if (!picked.ok) {
+    toast(picked.error, 'err');
+    return;
+  }
+  if (!picked.data) return; // 用户取消
+
+  const bar = $('#modalBody .exp-progress');
+  if (bar) bar.hidden = false;
+  $$('#modalFoot button').forEach((b) => {
+    b.disabled = true;
+  });
+
+  const r = await api.exportPack({ dir: v.dir, id: v.id, outPath: picked.data, include });
+  $$('#modalFoot button').forEach((b) => {
+    b.disabled = false;
+  });
+
+  if (r.ok) {
+    closeModal();
+    toast(`已导出 ${fmtBytes(r.data.bytes)} · ${r.data.files} 个文件`, 'ok');
+    api.openPath(picked.data.replace(/[\\/][^\\/]+$/, ''));
+  } else {
+    toast(r.error, 'err');
+    if (bar) bar.hidden = true;
+  }
+}
 
 /* ---------------------------------------------------------------- 整合包导入 */
 const PACK_KIND_LABEL = {
@@ -1545,6 +1668,7 @@ function bindEvents() {
   $('#versionSelect').onchange = (e) => {
     S.selected = e.target.value;
     renderPlaySelect();
+    renderJavaSummary(); // 不同实例的 Java 需求不同，摘要要跟着变
   };
 
   const saveName = debounce((name) => {
@@ -1742,6 +1866,8 @@ function bindEvents() {
         const ok = await copyText(r.data);
         toast(ok ? '启动命令已复制到剪贴板' : '复制失败', ok ? 'ok' : 'err');
       } else toast(r.error, 'err');
+    } else if (btn.dataset.act === 'export') {
+      exportPackFlow(v);
     } else if (btn.dataset.act === 'remove') {
       if (!confirm(`确定删除版本 ${v.id}？会移除该实例目录，不可撤销。`)) return;
       const r = await api.remove(v.id, v.dir);

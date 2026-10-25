@@ -15,6 +15,7 @@ const savesLib = require('./core/saves');
 const updater = require('./core/updater');
 const gpuLib = require('./core/gpu');
 const packLib = require('./core/pack');
+const exportLib = require('./core/export');
 const loadersLib = require('./core/loaders');
 const modrinthLib = require('./core/modrinth');
 const curseforgeLib = require('./core/curseforge');
@@ -830,9 +831,12 @@ function registerIpc() {
       const picked = preferred || javaLib.pick(javaCache, required);
 
       if (!picked) {
+        const have = javaCache.length
+          ? javaCache.map((j) => j.major).sort((a, b) => a - b).join(' / ')
+          : '无';
         return {
           ok: false,
-          error: '未检测到可用的 Java 运行时，请先在「设置 → Java 运行时」中指定 javaw.exe 路径',
+          error: `该版本需要 Java ${required}，本机检测到的是 Java ${have}。请安装 Java ${required}，或在「设置 → Java 运行时」里手动指定。`,
         };
       }
 
@@ -1187,6 +1191,71 @@ function registerIpc() {
       // 导入后重新扫一遍，让列表立刻出现新实例
       await refreshJava().catch(() => {});
     }
+    return r;
+  });
+
+  // ---------------- 导出整合包 ----------------
+  /** 只读：列出可导出的内容，供界面勾选 */
+  handle('pack:exportPlan', async (_e, { dir, id } = {}) => {
+    try {
+      const gameDir = dir ? assertInGameDirs(dir, '游戏目录') : path.resolve(settingsLib.all().mcDir);
+      const versionId = safe.assertVersionId(id);
+      const p = exportLib.plan({ gameDir, id: versionId });
+      const instDir = path.join(gameDir, 'versions', versionId);
+      return {
+        ok: true,
+        data: {
+          id: p.id,
+          mc: p.mc,
+          loader: p.loader,
+          java: p.java,
+          hasJar: p.hasJar,
+          // 非隔离实例的 mods/config 在游戏根目录，导不出去，必须提前说清楚
+          isolated: require('./core/dirs').isIsolatedInstance(instDir),
+          items: p.items.map((it) => ({
+            key: it.key,
+            label: it.label,
+            enabled: it.enabled,
+            available: it.available,
+            files: it.files,
+            bytes: it.bytes,
+          })),
+        },
+      };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  /** 选保存位置 */
+  handle('pack:exportPick', async (_e, { defaultName } = {}) => {
+    const safeName = String(defaultName || 'SMUCL整合包').replace(/[\\/:*?"<>|]/g, '_').slice(0, 80);
+    const res = await dialog.showSaveDialog(win, {
+      title: '保存整合包',
+      defaultPath: path.join(app.getPath('desktop'), `${safeName}.zip`),
+      filters: [{ name: 'ZIP 压缩包', extensions: ['zip'] }],
+    });
+    if (res.canceled || !res.filePath) return { ok: true, data: null };
+    let out = res.filePath;
+    if (!/\.zip$/i.test(out)) out += '.zip';
+    return { ok: true, data: out };
+  });
+
+  handle('pack:export', async (_e, { dir, id, outPath, include } = {}) => {
+    if (typeof outPath !== 'string' || !outPath) return { ok: false, error: '没有选择保存位置' };
+    const gameDir = dir ? assertInGameDirs(dir, '游戏目录') : path.resolve(settingsLib.all().mcDir);
+    const versionId = safe.assertVersionId(id);
+    const send = (p) => {
+      if (win && !win.isDestroyed()) win.webContents.send('pack:exportProgress', p);
+    };
+    const r = await exportLib.exportInstance({
+      gameDir,
+      id: versionId,
+      outPath: path.resolve(outPath),
+      include,
+      onProgress: send,
+    });
+    if (r.ok) send({ percent: 100, message: '导出完成' });
     return r;
   });
 

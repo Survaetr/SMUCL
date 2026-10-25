@@ -211,14 +211,29 @@ async function detect({ mcDir, mcDirs, preferred } = {}) {
 }
 
 /** 为指定游戏版本挑选合适的 Java：优先满足 major 要求的最小版本 */
+/**
+ * 允许比要求高出的最大版本跨度。
+ * 跨 1~2 个版本通常无碍（21 → 22/23），再多就不安全：
+ * mod 加载器内置的 ASM 对 class file 版本有上限，
+ * 用 Java 25（class file 69）去跑面向 Java 21 的 NeoForge，
+ * 会直接崩在 BootstrapLauncher 且不产生任何游戏日志。
+ */
+const MAX_AHEAD = 2;
+
 function pick(results, requiredMajor) {
   if (!results.length) return null;
   if (!requiredMajor) return results[0];
-  const fit = results.filter((j) => j.major === requiredMajor);
-  if (fit.length) return fit[0];
-  const newer = results.filter((j) => j.major > requiredMajor).sort((a, b) => a.major - b.major);
-  if (newer.length) return newer[0];
-  return results[0];
+
+  const exact = results.filter((j) => j.major === requiredMajor);
+  if (exact.length) return exact[0];
+
+  const near = results
+    .filter((j) => j.major > requiredMajor && j.major <= requiredMajor + MAX_AHEAD)
+    .sort((a, b) => a.major - b.major);
+  if (near.length) return near[0];
+
+  // 找不到合适的就明确失败：拿不兼容的版本硬跑只会得到一个没有日志的闪退
+  return null;
 }
 
 module.exports = { detect, pick, runJavaVersion };
