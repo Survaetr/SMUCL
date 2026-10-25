@@ -494,6 +494,19 @@
   footer .links { display: flex; gap: 18px; font-size: 12.5px; color: var(--muted); }
   footer .links a:hover { color: var(--text); }
 
+  .contact-line {
+    margin: 14px 0 0;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .contact-line a, a.mail {
+    color: var(--gold);
+    border-bottom: 1px solid rgba(240, 179, 74, 0.35);
+    transition: border-color 0.16s, color 0.16s;
+  }
+  .contact-line a:hover, a.mail:hover { color: #ffd894; border-color: rgba(240, 179, 74, 0.8); }
+  footer .links a.mail { color: var(--gold); }
+
   /* ---------------- Toast ---------------- */
   .toast {
     position: fixed;
@@ -680,7 +693,7 @@
           <ul class="hints">
             <li>Release 里的 <code style="color:var(--gold)">app-*.zip</code> 是增量更新包，只给启动器自更新用，不能单独运行</li>
             <li>想自己编译：<code style="color:var(--gold)">git clone</code> 后 <code style="color:var(--gold)">npm i &amp;&amp; npx electron .</code></li>
-            <li>用问题请开 Issue，欢迎 PR</li>
+            <li>问题请开 Issue，或发邮件到 <a class="mail" href="mailto:liuzhjb666@163.com">liuzhjb666@163.com</a>，PR 同样欢迎</li>
           </ul>
         </article>
       </div>
@@ -824,6 +837,10 @@
           <summary>怎么更新到新版本？</summary>
           <p>启动器每 30 分钟自动检查，侧栏出现更新提示点一下就好；也可以在「设置 → 关于」里手动检查。更新只替换应用代码，不动你的实例和存档。</p>
         </details>
+
+        <p class="contact-line">
+          还有别的问题？发邮件到 <a href="mailto:liuzhjb666@163.com">liuzhjb666@163.com</a>，或到 <a href="https://github.com/Survaetr/SMUCL/issues" target="_blank" rel="noopener">GitHub Issue</a> 里说，一般当天回。
+        </p>
       </div>
     </div>
   </section>
@@ -834,6 +851,7 @@
   <div class="wrap">
     <p>© 2026 SMUCL · 上海海事大学学生项目 · MIT License</p>
     <div class="links">
+      <a class="mail" href="mailto:liuzhjb666@163.com">liuzhjb666@163.com</a>
       <a href="https://github.com/Survaetr/SMUCL" target="_blank" rel="noopener">GitHub</a>
       <a href="https://github.com/Survaetr/SMUCL/releases" target="_blank" rel="noopener">更新日志</a>
       <a href="https://mc.sjtu.cn/sjmcl" target="_blank" rel="noopener">SJMC</a>
