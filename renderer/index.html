@@ -89,15 +89,15 @@
 
         <div class="sidebar-foot">
           <div class="player-card" id="playerCard">
-            <div class="avatar" id="avatar">S</div>
+            <div class="avatar" id="avatar"><span class="avatar-letter">S</span></div>
             <div class="player-meta">
               <b id="sidePlayer">Steve</b>
               <span id="sideAccountMode">离线账户</span>
             </div>
-            <span class="badge-offline">本地</span>
+            <span class="badge-offline" id="sideModeChip">本地</span>
           </div>
           <button class="update-pill" id="updatePill" hidden>发现新版本</button>
-          <div class="side-hint">SMUCL v1.9.1 · 基于 Electron</div>
+          <div class="side-hint">SMUCL v1.9.2 · 基于 Electron</div>
         </div>
       </aside>
 
@@ -186,7 +186,7 @@
               </div>
 
               <div class="card notice-card">
-                <div class="card-head"><h2>公告</h2><span class="chip">v1.9.1</span></div>
+                <div class="card-head"><h2>公告</h2><span class="chip">v1.9.2</span></div>
                 <ul class="notice-list">
                   <li>
                     <b>镜像加速已开启</b>
@@ -444,7 +444,7 @@
 
               <div id="accountSigned" hidden>
                 <div class="account-who">
-                  <div class="account-avatar" id="accountAvatar">S</div>
+                  <div class="account-avatar" id="accountAvatar"><span class="avatar-letter">S</span></div>
                   <div>
                     <b id="accountName">—</b>
                     <span id="accountUuid">—</span>
@@ -624,7 +624,7 @@
             <div class="card about-card">
               <div class="card-head">
                 <h2>关于 SMUCL</h2>
-                <span class="chip" id="aboutVersion">v1.9.1</span>
+                <span class="chip" id="aboutVersion">v1.9.2</span>
               </div>
               <div class="about-body">
                 <img class="pixel" src="../assets/logo-mc-128.png" alt="" />

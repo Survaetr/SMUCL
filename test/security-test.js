@@ -462,6 +462,21 @@ async function invoke(channel, payload, event = goodEvent()) {
     check('启用状态被保留', r3.data.wallpaper.enabled === true);
   }
 
+  console.log('\n[13] N6 皮肤头像参数校验');
+  {
+    // 只接受 UUID；其余一律拒绝，且不会去碰 skin 缓存目录
+    const bad = ['../x', '', null, 'x'.repeat(40), '5bf37f37'];
+    let allRejected = true;
+    for (const v of bad) {
+      const r = await invoke('account:skin', { uuid: v });
+      if (r.ok !== false) {
+        allRejected = false;
+        console.log('  未拒绝:', JSON.stringify(v));
+      }
+    }
+    check('非法 UUID 一律拒绝', allRejected);
+  }
+
   Module._load = origLoad;
 
   console.log(`\n===== 结果：${passed} 通过，${failures.length} 失败 =====`);

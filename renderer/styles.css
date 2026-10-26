@@ -1556,3 +1556,31 @@ html[data-theme="light"][data-wall="on"] .pack-card {
 .wp-pick-side .hint { margin: 8px 0 0; }
 .wp-foot { margin-top: 4px; }
 .segmented.compact .seg { padding: 0 6px; }
+
+/* ------------------- 正版皮肤头像 ------------------- */
+/* 脸是主进程裁好的 8×8 小图，这里只负责铺满 + 像素化放大 */
+.avatar,
+.account-avatar {
+  position: relative;
+  overflow: hidden;
+}
+.avatar .avatar-letter,
+.account-avatar .avatar-letter {
+  display: block;
+  line-height: 1;
+}
+
+.avatar.has-skin,
+.account-avatar.has-skin {
+  background: var(--bg-sunken);
+  box-shadow: inset 0 0 0 1px rgba(var(--ink), 0.16), 0 1px 3px rgba(0, 0, 0, 0.22);
+}
+.has-skin .avatar-letter { visibility: hidden; }
+.has-skin .face {
+  position: absolute;
+  inset: 0;
+  display: block;
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+  image-rendering: pixelated;
+}

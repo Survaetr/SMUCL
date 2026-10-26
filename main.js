@@ -25,6 +25,7 @@ const safe = require('./core/safe');
 const authLib = require('./core/auth');
 const accountLib = require('./core/account');
 const wallpaperLib = require('./core/wallpaper');
+const skinLib = require('./core/skin');
 
 // 背景图协议必须在 app ready 之前登记
 wallpaperLib.registerScheme();
@@ -847,9 +848,22 @@ function registerIpc() {
   });
 
   handle('auth:logout', async () => {
+    const before = accountLib.publicInfo();
     accountLib.clear();
+    skinLib.clear(before && before.uuid);
     await settingsLib.save({ loginMode: 'offline' });
     return { ok: true, data: { loggedIn: false } };
+  });
+
+  // 正版账号的皮肤头像：返回裁好的 8×8「脸 + 帽子层」两张 data URL
+  handle('account:skin', async (_e, { uuid, force } = {}) => {
+    if (!skinLib.isUuid(uuid)) return { ok: false, error: '账号 UUID 不合法' };
+    try {
+      const face = await skinLib.face(uuid, { force: Boolean(force) });
+      return { ok: true, data: face };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
   });
 
   // ---------------- 启动 ----------------

@@ -54,6 +54,7 @@ contextBridge.exposeInMainWorld('smucl', {
   contentInstall: (payload) => ipcRenderer.invoke('content:install', payload),
   onContentProgress: (cb) => on('content:progress', cb),
   authStatus: () => ipcRenderer.invoke('auth:status'),
+  accountSkin: (uuid, force) => ipcRenderer.invoke('account:skin', { uuid, force }),
   authLogin: () => ipcRenderer.invoke('auth:login'),
   authCancel: () => ipcRenderer.invoke('auth:cancel'),
   authLogout: () => ipcRenderer.invoke('auth:logout'),

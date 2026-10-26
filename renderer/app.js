@@ -424,7 +424,7 @@ function renderAll() {
   $('#navVersionCount').textContent = String(S.installed.length);
   $('#navSaveCount').textContent = S.saves ? String(S.saves.length) : '0';
   $('#sidePlayer').textContent = S.settings.playerName || 'Steve';
-  $('#avatar').textContent = (S.settings.playerName || 'S').slice(0, 1).toUpperCase();
+  setAvatarLetter($('#avatar'), (S.settings.playerName || 'S').slice(0, 1).toUpperCase());
 }
 
 function currentVersion() {
@@ -705,6 +705,61 @@ async function installLoader() {
 }
 
 
+/* ---------------------------------------------------------------- 头像 */
+// 正版账号画皮肤脸，离线账号退回名字首字母。脸按 uuid 缓存在内存里，
+// 避免每次重渲染都走一次 IPC。
+const faceCache = new Map();
+
+function avatarEls() {
+  return [$('#avatar'), $('#accountAvatar')].filter(Boolean);
+}
+
+/** 只改首字母，不动皮肤图层 */
+function setAvatarLetter(el, name) {
+  if (!el) return;
+  const letter = String(name || 'S').trim().slice(0, 1).toUpperCase() || 'S';
+  const span = el.querySelector('.avatar-letter');
+  if (span) span.textContent = letter;
+  else el.textContent = letter;
+}
+
+function clearFace(el) {
+  if (!el) return;
+  el.classList.remove('has-skin');
+  el.querySelectorAll('.face').forEach((n) => n.remove());
+}
+
+function applyFace(el, face) {
+  if (!el || !face || !face.base) return;
+  clearFace(el);
+  const add = (url, hat) => {
+    const i = document.createElement('i');
+    i.className = hat ? 'face hat' : 'face';
+    i.style.backgroundImage = `url("${url}")`;
+    el.appendChild(i);
+  };
+  add(face.base, false);
+  if (face.hat) add(face.hat, true);
+  el.classList.add('has-skin');
+}
+
+async function paintSkin() {
+  const a = S.account;
+  if (!a || !a.loggedIn || !a.uuid) {
+    avatarEls().forEach(clearFace);
+    return;
+  }
+  let face = faceCache.get(a.uuid);
+  if (!face) {
+    const r = await api.accountSkin(a.uuid);
+    if (!r.ok) return; // 拿不到皮肤就保持首字母，不打扰用户
+    face = r.data;
+    faceCache.set(a.uuid, face);
+  }
+  // 等 IPC 期间可能换了账号，落到旧账号就不画
+  if (!S.account || S.account.uuid !== a.uuid) return;
+  avatarEls().forEach((el) => applyFace(el, face));
+}
 /* ---------------------------------------------------------------- 正版账号 */
 S.account = null;
 
@@ -721,19 +776,25 @@ function renderAccount() {
   if (a.loggedIn) {
     $('#accountName').textContent = a.name;
     $('#accountUuid').textContent = a.uuid;
-    $('#accountAvatar').textContent = (a.name || 'S').slice(0, 1).toUpperCase();
+    setAvatarLetter($('#accountAvatar'), (a.name || 'S').slice(0, 1).toUpperCase());
     $('#accountNote').textContent = a.encrypted
       ? '登录令牌已用系统凭据加密保存在本机；游戏启动时自动续期。'
       : '注意：当前系统不支持加密存储，令牌以明文保存在本机配置目录。';
     $('#sidePlayer').textContent = a.name;
-    $('#avatar').textContent = (a.name || 'S').slice(0, 1).toUpperCase();
+    setAvatarLetter($('#avatar'), (a.name || 'S').slice(0, 1).toUpperCase());
     if ($('#sideAccountMode')) $('#sideAccountMode').textContent = '正版账户';
+    if ($('#sideModeChip')) $('#sideModeChip').textContent = '正版';
   } else {
     $('#msClientIdInput').value = a.clientId || '';
     $('#offlineNameLabel').textContent = (S.settings && S.settings.playerName) || 'Steve';
     $('#sidePlayer').textContent = (S.settings && S.settings.playerName) || 'Steve';
+    setAvatarLetter($('#avatar'), (S.settings && S.settings.playerName) || 'Steve');
     if ($('#sideAccountMode')) $('#sideAccountMode').textContent = '离线账户';
+    if ($('#sideModeChip')) $('#sideModeChip').textContent = '本地';
   }
+
+  // 正版账号有皮肤就画脸，离线或取不到时保留首字母
+  paintSkin();
 }
 
 async function loadAccount() {
@@ -1639,7 +1700,7 @@ function renderSettings() {
 
   $('#playerName').value = s.playerName || 'Steve';
   $('#sidePlayer').textContent = s.playerName || 'Steve';
-  $('#avatar').textContent = (s.playerName || 'S').slice(0, 1).toUpperCase();
+  setAvatarLetter($('#avatar'), (s.playerName || 'S').slice(0, 1).toUpperCase());
 
   renderWallpaper();
 }
@@ -2108,7 +2169,7 @@ function bindEvents() {
       if (r.ok) {
         S.settings = r.data;
         $('#sidePlayer').textContent = name;
-        $('#avatar').textContent = name.slice(0, 1).toUpperCase();
+        setAvatarLetter($('#avatar'), name.slice(0, 1).toUpperCase());
       }
     });
   }, 400);
@@ -2117,7 +2178,7 @@ function bindEvents() {
   const nameInput = $('#playerName');
   const syncName = (name) => {
     $('#sidePlayer').textContent = name || 'Steve';
-    $('#avatar').textContent = (name || 'S').slice(0, 1).toUpperCase();
+    setAvatarLetter($('#avatar'), (name || 'S').slice(0, 1).toUpperCase());
     saveName(name || 'Steve');
   };
   const sanitizeName = () => {
@@ -2226,7 +2287,7 @@ function bindEvents() {
     await api.authLogout();
     await loadAccount();
     $('#sidePlayer').textContent = (S.settings && S.settings.playerName) || 'Steve';
-    $('#avatar').textContent = ((S.settings && S.settings.playerName) || 'S').slice(0, 1).toUpperCase();
+    setAvatarLetter($('#avatar'), ((S.settings && S.settings.playerName) || 'S').slice(0, 1).toUpperCase());
     toast('已退出正版账号', 'ok');
   };
 
@@ -2236,6 +2297,7 @@ function bindEvents() {
   });
   api.onAuthDone(async () => {
     closeModal();
+    faceCache.clear(); // 刚登录可能换了账号或换了皮肤，别用旧脸
     await loadAccount();
     toast(`已登录：${(S.account && S.account.name) || '微软账号'}`, 'ok');
   });
