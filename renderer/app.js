@@ -55,6 +55,102 @@ darkQuery.addEventListener('change', () => {
   if (S.settings && S.settings.theme === 'auto') applyTheme('auto');
 });
 
+/* ---------------------------------------------------------------- 背景图 */
+// 蒙版用 mask-image 表达；「暗角」是叠加一层径向压暗，遮罩本身不起作用
+const WP_MASK = {
+  none: 'none',
+  soft: 'radial-gradient(115% 100% at 50% 45%, #000 42%, rgba(0, 0, 0, 0) 100%)',
+  top: 'linear-gradient(to bottom, rgba(0, 0, 0, 0) 0%, #000 46%, #000 100%)',
+  bottom: 'linear-gradient(to bottom, #000 0%, #000 56%, rgba(0, 0, 0, 0) 100%)',
+  vignette: 'none',
+};
+
+const WP_MASK_HINT = {
+  none: '整张图铺满，最考验图片本身的明暗。',
+  soft: '柔和：中间清晰、四周淡出，最不挑图。',
+  top: '上隐：顶部淡出到背景色，标题栏更清爽。',
+  bottom: '下隐：底部淡出，配合浅色任务区域更好看。',
+  vignette: '暗角：四周压暗、中间保留，适合人像和风景。',
+};
+
+const WP_FIT = { cover: 'cover', contain: 'contain', stretch: '100% 100%' };
+
+function wallpaperUrl(name) {
+  return `smucl-wall://local/${encodeURIComponent(String(name || ''))}`;
+}
+
+/** 把设置写成 CSS 变量并切换 data-wall，所有样式都挂在这两个开关上 */
+function applyWallpaper(wp) {
+  const w = wp || {};
+  const root = document.documentElement;
+  const on = Boolean(w.enabled && w.image);
+  const img = $('#wallpaper');
+
+  if (!on) {
+    root.dataset.wall = 'off';
+    root.dataset.wpMask = 'none';
+    if (img) img.querySelector('.wp-img').style.backgroundImage = 'none';
+    return;
+  }
+
+  root.dataset.wall = 'on';
+  root.dataset.wpMask = WP_MASK[w.mask] ? w.mask : 'soft';
+  root.style.setProperty('--wp-image', `url("${wallpaperUrl(w.image)}")`);
+  root.style.setProperty('--wp-opacity', String(w.opacity ?? 0.6));
+  root.style.setProperty('--wp-blur', `${Number(w.blur) || 0}px`);
+  root.style.setProperty('--wp-fit', WP_FIT[w.fit] || 'cover');
+  root.style.setProperty('--wp-mask', WP_MASK[w.mask] || WP_MASK.soft);
+  root.style.setProperty('--wp-dim', String(w.dim ?? 0.35));
+  root.style.setProperty('--wp-ui', `${Math.round((w.ui ?? 0.78) * 100)}%`);
+  // 行内 background-image 与变量同源，切换图片时能立刻换掉旧图
+  if (img) img.querySelector('.wp-img').style.backgroundImage = `url("${wallpaperUrl(w.image)}")`;
+}
+
+/** 同步设置页里那一堆控件 */
+function renderWallpaper() {
+  const w = { ...(S.settings.wallpaper || {}) };
+  const has = Boolean(w.image);
+  const on = Boolean(w.enabled && has);
+
+  const chip = $('#wpStateChip');
+  if (chip) {
+    chip.textContent = on ? '已启用背景' : has ? '已关闭' : '默认';
+    chip.classList.toggle('chip-gold', on);
+  }
+
+  const thumb = $('#wpThumb');
+  if (thumb) {
+    thumb.style.backgroundImage = has ? `url("${wallpaperUrl(w.image)}")` : 'none';
+    thumb.querySelector('span').textContent = has ? '' : '无图片';
+  }
+  const hint = $('#wpFileHint');
+  if (hint) {
+    hint.textContent = has
+      ? '图片已复制到启动器目录，删原文件不影响显示；再选新图会替换旧图。'
+      : '支持 PNG / JPG / WebP 等常见格式，单张不超过 32 MB；图片会复制到启动器目录，删原文件不影响。';
+  }
+
+  const ctrls = $('#wpControls');
+  if (ctrls) ctrls.hidden = !has;
+
+  const en = $('#wpEnabled');
+  if (en) en.checked = on;
+
+  $('#wpOpacity').value = String(Math.round((w.opacity ?? 0.6) * 100));
+  $('#wpOpacityLabel').textContent = `${Math.round((w.opacity ?? 0.6) * 100)}%`;
+  $('#wpBlur').value = String(Number(w.blur) || 0);
+  $('#wpBlurLabel').textContent = `${Number(w.blur) || 0} px`;
+  $('#wpDim').value = String(Math.round((w.dim ?? 0.35) * 100));
+  $('#wpDimLabel').textContent = `${Math.round((w.dim ?? 0.35) * 100)}%`;
+  $('#wpUi').value = String(Math.round((w.ui ?? 0.78) * 100));
+  $('#wpUiLabel').textContent = `${Math.round((w.ui ?? 0.78) * 100)}%`;
+
+  $$('#wpFit .seg').forEach((b) => b.classList.toggle('active', b.dataset.fit === (w.fit || 'cover')));
+  $$('#wpMask .seg').forEach((b) => b.classList.toggle('active', b.dataset.mask === (w.mask || 'soft')));
+  const mh = $('#wpMaskHint');
+  if (mh) mh.textContent = WP_MASK_HINT[w.mask] || WP_MASK_HINT.soft;
+}
+
 const TYPE_LABEL = {
   release: '正式版',
   snapshot: '快照',
@@ -1541,6 +1637,8 @@ function renderSettings() {
   $('#playerName').value = s.playerName || 'Steve';
   $('#sidePlayer').textContent = s.playerName || 'Steve';
   $('#avatar').textContent = (s.playerName || 'S').slice(0, 1).toUpperCase();
+
+  renderWallpaper();
 }
 
 /* ---------------------------------------------------------------- 更新提示 */
@@ -1916,6 +2014,65 @@ function bindEvents() {
       renderSettings();
       api.save({ theme: b.dataset.theme });
     };
+  });
+
+  // 背景图：拖动即时预览，松手才写盘，避免一路写配置文件
+  const saveWall = (patch, persist = true) => {
+    S.settings.wallpaper = { ...(S.settings.wallpaper || {}), ...patch };
+    applyWallpaper(S.settings.wallpaper);
+    renderWallpaper();
+    if (!persist) return;
+    api.save({ wallpaper: S.settings.wallpaper }).then((r) => {
+      if (r && r.ok) {
+        S.settings.wallpaper = r.data.wallpaper;
+        applyWallpaper(S.settings.wallpaper);
+      }
+    });
+  };
+
+  $('#btnPickWall').onclick = async () => {
+    const r = await api.wallpaperPick();
+    if (!r.ok) return toast('选择图片失败：' + r.error, 'err');
+    if (!r.data) return; // 用户取消
+    saveWall({ image: r.data.name, enabled: true });
+    toast('背景已应用', 'ok');
+  };
+
+  $('#btnClearWall').onclick = async () => {
+    const r = await api.wallpaperClear();
+    if (!r.ok) return toast('移除失败：' + r.error, 'err');
+    S.settings = r.data.settings;
+    applyWallpaper(S.settings.wallpaper);
+    renderWallpaper();
+    toast('背景已移除', 'ok');
+  };
+
+  $('#btnOpenWallDir').onclick = () => api.wallpaperOpen();
+
+  $('#wpEnabled').onchange = (e) => saveWall({ enabled: e.target.checked });
+
+  $('#btnResetWall').onclick = () => {
+    saveWall({ opacity: 0.6, blur: 0, dim: 0.35, ui: 0.78, mask: 'soft', fit: 'cover' });
+    toast('已恢复默认参数', 'ok');
+  };
+
+  $$('#wpFit .seg').forEach((b) => {
+    b.onclick = () => saveWall({ fit: b.dataset.fit });
+  });
+  $$('#wpMask .seg').forEach((b) => {
+    b.onclick = () => saveWall({ mask: b.dataset.mask });
+  });
+
+  [
+    ['#wpOpacity', (v) => ({ opacity: v / 100 })],
+    ['#wpBlur', (v) => ({ blur: v })],
+    ['#wpDim', (v) => ({ dim: v / 100 })],
+    ['#wpUi', (v) => ({ ui: v / 100 })],
+  ].forEach(([sel, map]) => {
+    const el = $(sel);
+    if (!el) return;
+    el.oninput = () => saveWall(map(Number(el.value)), false);
+    el.onchange = () => saveWall(map(Number(el.value)), true);
   });
 
   // 弹窗
@@ -2447,6 +2604,7 @@ async function boot() {
 
   // 主题尽早应用，避免首帧闪一下
   applyTheme(S.settings.theme || 'auto');
+  applyWallpaper(S.settings.wallpaper);
   loadAccount();
   renderLoaderCard();
 

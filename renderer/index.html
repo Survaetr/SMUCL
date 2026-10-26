@@ -2,11 +2,18 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: https://cdn.modrinth.com https://media.forgecdn.net https://edge.forgecdn.net; style-src 'self' 'unsafe-inline'; script-src 'self';" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: smucl-wall: https://cdn.modrinth.com https://media.forgecdn.net https://edge.forgecdn.net; style-src 'self' 'unsafe-inline'; script-src 'self';" />
   <title>SMUCL — 上海海事大学 Minecraft 启动器</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <!-- 背景图图层：仅在启用水壁纸时显示，纯装饰、不接收事件 -->
+  <div class="wallpaper" id="wallpaper" aria-hidden="true">
+    <div class="wp-img"></div>
+    <div class="wp-vignette"></div>
+    <div class="wp-dim"></div>
+  </div>
+
   <div class="app">
     <!-- ============ 标题栏 ============ -->
     <header class="titlebar">
@@ -90,7 +97,7 @@
             <span class="badge-offline">本地</span>
           </div>
           <button class="update-pill" id="updatePill" hidden>发现新版本</button>
-          <div class="side-hint">SMUCL v1.8.0 · 基于 Electron</div>
+          <div class="side-hint">SMUCL v1.9.0 · 基于 Electron</div>
         </div>
       </aside>
 
@@ -179,7 +186,7 @@
               </div>
 
               <div class="card notice-card">
-                <div class="card-head"><h2>公告</h2><span class="chip">v1.8.0</span></div>
+                <div class="card-head"><h2>公告</h2><span class="chip">v1.9.0</span></div>
                 <ul class="notice-list">
                   <li>
                     <b>镜像加速已开启</b>
@@ -490,7 +497,10 @@
             </div>
 
             <div class="card">
-              <div class="card-head"><h2>外观</h2></div>
+              <div class="card-head">
+                <h2>外观</h2>
+                <span class="chip" id="wpStateChip">默认</span>
+              </div>
               <div class="field">
                 <label>主题外观</label>
                 <div class="segmented wide" id="themeSwitch">
@@ -499,6 +509,78 @@
                   <button class="seg" data-theme="light">浅色</button>
                 </div>
                 <p class="hint">浅色主题会保留首页横幅与运行日志的深色底，避免像素 Logo 失效。</p>
+              </div>
+
+              <div class="wp-block">
+                <div class="wp-head">
+                  <b>自定义背景</b>
+                  <span>导入一张图，按自己的口味调透明度和蒙版</span>
+                </div>
+
+                <div class="wp-pick">
+                  <div class="wp-thumb" id="wpThumb"><span>无图片</span></div>
+                  <div class="wp-pick-side">
+                    <div class="row">
+                      <button class="btn-sm btn-primary" id="btnPickWall">选择图片…</button>
+                      <button class="btn-sm" id="btnClearWall">移除</button>
+                    </div>
+                    <p class="hint" id="wpFileHint">支持 PNG / JPG / WebP 等常见格式，单张不超过 32 MB；图片会复制到启动器目录，删原文件不影响。</p>
+                  </div>
+                </div>
+
+                <div id="wpControls" hidden>
+                  <div class="switch-row" style="margin-top:14px">
+                    <div><b>启用背景图</b><span>临时关掉不影响图片本身，随时可以再打开</span></div>
+                    <label class="switch"><input type="checkbox" id="wpEnabled" /><i></i></label>
+                  </div>
+                  <div class="field">
+                    <label>显示方式</label>
+                    <div class="segmented wide" id="wpFit">
+                      <button class="seg" data-fit="cover">铺满裁切</button>
+                      <button class="seg" data-fit="contain">完整显示</button>
+                      <button class="seg" data-fit="stretch">拉伸铺满</button>
+                    </div>
+                  </div>
+
+                  <div class="field">
+                    <label>蒙版</label>
+                    <div class="segmented wide compact" id="wpMask">
+                      <button class="seg" data-mask="none">无</button>
+                      <button class="seg" data-mask="soft">柔和</button>
+                      <button class="seg" data-mask="top">上隐</button>
+                      <button class="seg" data-mask="bottom">下隐</button>
+                      <button class="seg" data-mask="vignette">暗角</button>
+                    </div>
+                    <p class="hint" id="wpMaskHint">柔和：中间清晰、四周淡出，最不挑图。</p>
+                  </div>
+
+                  <div class="field">
+                    <label>图片不透明度 <b id="wpOpacityLabel">60%</b></label>
+                    <input type="range" id="wpOpacity" min="5" max="100" step="1" />
+                  </div>
+
+                  <div class="field">
+                    <label>模糊 <b id="wpBlurLabel">0 px</b></label>
+                    <input type="range" id="wpBlur" min="0" max="40" step="1" />
+                  </div>
+
+                  <div class="field">
+                    <label>压暗 <b id="wpDimLabel">35%</b></label>
+                    <input type="range" id="wpDim" min="0" max="85" step="1" />
+                    <p class="hint">背景越亮，越需要压暗，否则文字发灰。</p>
+                  </div>
+
+                  <div class="field">
+                    <label>界面不透明度 <b id="wpUiLabel">78%</b></label>
+                    <input type="range" id="wpUi" min="35" max="100" step="1" />
+                    <p class="hint">调低后卡片、侧栏变半透明，能看见更多背景；低于 60% 文字对比度会明显下降。</p>
+                  </div>
+
+                  <div class="row wp-foot">
+                    <button class="btn-sm" id="btnOpenWallDir">打开图片目录</button>
+                    <button class="btn-sm" id="btnResetWall">恢复默认</button>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -538,7 +620,7 @@
             <div class="card about-card">
               <div class="card-head">
                 <h2>关于 SMUCL</h2>
-                <span class="chip" id="aboutVersion">v1.8.0</span>
+                <span class="chip" id="aboutVersion">v1.9.0</span>
               </div>
               <div class="about-body">
                 <img class="pixel" src="../assets/logo-mc-128.png" alt="" />

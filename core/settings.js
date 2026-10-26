@@ -25,6 +25,17 @@ const DEFAULTS = {
   autoCheck: true, // 后台自动检查新版本
   gpuFallback: false, // GPU 进程崩溃后自动切换的兼容启动模式
   theme: 'auto', // auto | dark | light
+  // 背景图与玻璃化。image 只是 wallpapers/ 下的文件名，主进程会校验存在性
+  wallpaper: {
+    enabled: false,
+    image: '',
+    fit: 'cover', // cover | contain | stretch
+    mask: 'soft', // none | soft | top | bottom | vignette
+    opacity: 0.6, // 图片层不透明度
+    blur: 0, // 模糊半径（px）
+    dim: 0.35, // 压暗强度，保证文字对比度
+    ui: 0.78, // 界面（卡片/侧栏）不透明度
+  },
   autoUpdateCheck: true, // 启动时检查 GitHub 是否有新版本
   lastSeenVersion: '', // 用于判断是否需要弹出更新日志
   gpuHighPerf: false, // 已把 javaw.exe 写入 Windows「高性能显卡」偏好
@@ -54,7 +65,12 @@ function load() {
     console.warn('[settings] 读取失败，使用默认值:', e.message);
     disk = {};
   }
-  cache = { ...DEFAULTS, ...disk, resolution: { ...DEFAULTS.resolution, ...(disk.resolution || {}) } };
+  cache = {
+    ...DEFAULTS,
+    ...disk,
+    resolution: { ...DEFAULTS.resolution, ...(disk.resolution || {}) },
+    wallpaper: { ...DEFAULTS.wallpaper, ...(disk.wallpaper || {}) },
+  };
   return cache;
 }
 
@@ -65,6 +81,7 @@ function all() {
 function save(patch = {}) {
   const next = { ...load(), ...patch };
   if (patch.resolution) next.resolution = { ...load().resolution, ...patch.resolution };
+  if (patch.wallpaper) next.wallpaper = { ...load().wallpaper, ...patch.wallpaper };
   if (patch.extraDirs && !Array.isArray(patch.extraDirs)) next.extraDirs = load().extraDirs;
   cache = next;
   try {

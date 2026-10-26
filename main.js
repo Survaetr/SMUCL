@@ -24,6 +24,10 @@ const curseforgeLib = require('./core/curseforge');
 const safe = require('./core/safe');
 const authLib = require('./core/auth');
 const accountLib = require('./core/account');
+const wallpaperLib = require('./core/wallpaper');
+
+// 背景图协议必须在 app ready 之前登记
+wallpaperLib.registerScheme();
 
 // Windows 上部分镜像的 AAAA 记录不可达，IPv6 优先会白等十几次超时
 try {
@@ -136,6 +140,7 @@ const EDITABLE_SETTINGS = new Set([
   'autoCheck',
   'autoUpdateCheck',
   'theme',
+  'wallpaper',
   'gpuHighPerf',
   'saveGroup',
   'cfApiKey',
@@ -170,6 +175,12 @@ function clampInt(value, min, max, fallback) {
   const n = Number(value);
   if (!Number.isFinite(n)) return fallback;
   return Math.min(max, Math.max(min, Math.round(n)));
+}
+
+function clampFloat(value, min, max, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.round(Math.min(max, Math.max(min, n)) * 1000) / 1000;
 }
 
 /**
@@ -237,6 +248,22 @@ function sanitizeSettingsPatch(patch) {
         if (!['auto', 'dark', 'light'].includes(value)) throw new Error('主题无效');
         out.theme = value;
         break;
+      case 'wallpaper': {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('背景设置无效');
+        // image 只接受 wallpapers/ 里真实存在的文件，避免把任意路径写进配置
+        const image = wallpaperLib.exists(value.image) ? String(value.image) : '';
+        out.wallpaper = {
+          enabled: Boolean(value.enabled) && Boolean(image),
+          image,
+          fit: ['cover', 'contain', 'stretch'].includes(value.fit) ? value.fit : 'cover',
+          mask: ['none', 'soft', 'top', 'bottom', 'vignette'].includes(value.mask) ? value.mask : 'soft',
+          opacity: clampFloat(value.opacity, 0.05, 1, 0.6),
+          blur: clampInt(value.blur, 0, 40, 0),
+          dim: clampFloat(value.dim, 0, 0.85, 0.35),
+          ui: clampFloat(value.ui, 0.35, 1, 0.78),
+        };
+        break;
+      }
       case 'saveGroup':
         if (!['folder', 'version', 'time'].includes(value)) throw new Error('存档分组方式无效');
         out.saveGroup = value;
@@ -406,8 +433,11 @@ function appState() {
   const settings = settingsLib.all();
   const dirs = getDirs();
   const installed = versionLib.listInstalled(dirs);
+  // 图片被手动删掉时不要把已失效的路径发给渲染层，直接按「未启用」处理
+  const wall = settings.wallpaper || {};
+  const wallOk = wallpaperLib.exists(wall.image);
   return {
-    settings,
+    settings: wallOk ? settings : { ...settings, wallpaper: { ...wall, enabled: false, image: '' } },
     javaList: javaCache,
     dirs,
     installed,
@@ -714,6 +744,10 @@ function registerIpc() {
         accountLib.clear(); // 授权已失效（改密码/被撤销），只能重新登录
         return null;
       }
+      // 刷新失败且本地 token 已过期：宁可报错，也不要拿一个死 token 去连服务器
+      if (a.expiresAt && a.expiresAt <= Date.now() + 120000) {
+        throw new Error(`正版登录已过期，刷新失败（${e.message}）。请在「设置 → 账号」重新登录。`);
+      }
       return a;
     }
   };
@@ -864,6 +898,10 @@ function registerIpc() {
     [/UnsupportedClassVersionError/i, 'Java 版本不符，请在「设置 → Java 运行时」里换成本版本要求的版本。'],
     [/Failed to locate library|UnsatisfiedLinkError/i, '缺少本机 DLL，点日志右上角「修复依赖」重新下载本地库。'],
     [/IllegalStateException: Duplicate key/i, 'classpath 里有重复的库，点日志右上角「修复依赖」或在版本页重新安装。'],
+    [
+      /无效会话|Invalid session|Failed to verify username|Failed to log in|Invalid credentials/i,
+      '服务器开启了正版验证（Hypixel、多数公共服都是）。请在「设置 → 账号」用微软正版账号登录，离线账户进不去。',
+    ],
   ];
 
   handle('game:launch', async (_e, { id, dir } = {}) => {
@@ -907,6 +945,12 @@ function registerIpc() {
           ? { name: account.name, uuid: account.uuid, accessToken: account.accessToken, xuid: account.xuid }
           : null,
       };
+      // 离线账户进正版验证服务器只会得到「无效会话」，提前写进日志免得白试
+      if (!account && win && !win.isDestroyed()) {
+        win.webContents.send('game:log', {
+          line: '> 离线账户：Hypixel 等开启正版验证的服务器会提示「无效会话」，需先在「设置 → 账号」登录微软账号',
+        });
+      }
       if (picked.major !== required && win && !win.isDestroyed()) {
         win.webContents.send('game:log', {
           line: `> 提示：${versionId} 需要 Java ${required}，当前使用 Java ${picked.major}，可能无法正常启动`,
@@ -983,6 +1027,25 @@ function registerIpc() {
       await refreshJava().catch(() => {});
     }
     return { ok: true, data: next };
+  });
+
+  // ---------------- 背景图（主题自定义） ----------------
+  handle('wallpaper:pick', async () => {
+    const r = await wallpaperLib.pick(win && !win.isDestroyed() ? win : undefined);
+    return { ok: true, data: r };
+  });
+
+  handle('wallpaper:clear', async () => {
+    const removed = wallpaperLib.clearAll();
+    const next = settingsLib.save({ wallpaper: { enabled: false, image: '' } });
+    return { ok: true, data: { removed, settings: next } };
+  });
+
+  handle('wallpaper:open', async () => {
+    const dir = wallpaperLib.ensureDir();
+    const err = await shell.openPath(dir);
+    if (err) throw new Error(err);
+    return { ok: true, data: { dir } };
   });
 
   // ---------------- 应用自身的更新 ----------------
@@ -1456,6 +1519,7 @@ if (!gotLock) {
   app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
     app.setAppUserModelId('cn.edu.shmtu.smucl');
+    wallpaperLib.registerHandler();
     settingsLib.ensureGameDir();
     adoptLauncherDirIfNeeded();
     registerIpc();

@@ -1414,3 +1414,145 @@ html[data-theme="light"] .pack-notice { color: #6b5327; }
 }
 .pack-ver-list .pack-ver-row:hover { background: rgba(var(--ink), 0.06); }
 .pack-ver-list .pack-ver-row b { max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* =========================================================
+   主题自定义：背景图 + 玻璃化
+   变量由 app.js 写在 <html> 的行内样式上：
+   --wp-image / --wp-opacity / --wp-blur / --wp-fit / --wp-mask
+   --wp-dim / --wp-ui
+   ========================================================= */
+:root {
+  --wp-dim-color: #05080f;
+  --wp-vignette: rgba(3, 7, 14, 0.62);
+}
+html[data-theme="light"] {
+  --wp-dim-color: #eef3fa;
+  --wp-vignette: rgba(255, 255, 255, 0.7);
+}
+
+.wallpaper {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  display: none;
+  overflow: hidden;
+  pointer-events: none;
+}
+html[data-wall="on"] .wallpaper { display: block; }
+
+/* 负 inset 让模糊的边缘落在视口外，避免四周出现透明毛边 */
+.wp-img {
+  position: absolute;
+  inset: calc(var(--wp-blur, 0px) * -1.2);
+  background-image: var(--wp-image, none);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: var(--wp-fit, cover);
+  opacity: var(--wp-opacity, 0.6);
+  filter: blur(var(--wp-blur, 0px)) saturate(1.06);
+  -webkit-mask-image: var(--wp-mask, none);
+  mask-image: var(--wp-mask, none);
+  transition: opacity 0.28s ease, filter 0.28s ease;
+}
+
+.wp-dim {
+  position: absolute;
+  inset: 0;
+  background: var(--wp-dim-color);
+  opacity: var(--wp-dim, 0.35);
+}
+
+.wp-vignette {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+html[data-wall="on"][data-wp-mask="vignette"] .wp-vignette {
+  opacity: 1;
+  background: radial-gradient(118% 104% at 50% 44%, transparent 36%, var(--wp-vignette) 100%);
+}
+
+/* 背景启用后，根容器的底色必须让位，否则图片被完全盖住 */
+html[data-wall="on"] .app {
+  position: relative;
+  z-index: 1;
+  background: transparent;
+}
+
+/* 玻璃化：统一按 --wp-ui 混合出半透明底色，数值越高越不透明 */
+html[data-wall="on"] .titlebar {
+  background: color-mix(in srgb, var(--bg-0) var(--wp-ui, 78%), transparent);
+}
+html[data-wall="on"] .sidebar {
+  background: color-mix(in srgb, var(--bg-1) var(--wp-ui, 78%), transparent);
+  backdrop-filter: blur(16px) saturate(1.12);
+}
+html[data-wall="on"] .card {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--card) var(--wp-ui, 78%), transparent) 0%,
+    color-mix(in srgb, var(--card-sunken) var(--wp-ui, 78%), transparent) 100%
+  );
+  backdrop-filter: blur(18px) saturate(1.1);
+}
+html[data-wall="on"] .v-card,
+html[data-wall="on"] .save-card,
+html[data-wall="on"] .pack-card,
+html[data-wall="on"] .modal,
+html[data-wall="on"] .dl-list,
+html[data-wall="on"] .content-filters,
+html[data-wall="on"] .update-bar {
+  background: color-mix(in srgb, var(--card-2) var(--wp-ui, 78%), transparent);
+}
+html[data-wall="on"] .segmented {
+  background: color-mix(in srgb, var(--bg-1) var(--wp-ui, 78%), transparent);
+}
+html[data-wall="on"] .input,
+html[data-wall="on"] .select-wrap select {
+  background: color-mix(in srgb, var(--bg-sunken) var(--wp-ui, 78%), transparent);
+}
+html[data-wall="on"] .java-item,
+html[data-wall="on"] .exp-row {
+  background: color-mix(in srgb, var(--card-sunken) var(--wp-ui, 78%), transparent);
+}
+/* 透明面叠多了会发灰，阴影统一减弱一点 */
+html[data-wall="on"] .card,
+html[data-wall="on"] .v-card,
+html[data-wall="on"] .save-card,
+html[data-wall="on"] .pack-card {
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.24);
+}
+html[data-theme="light"][data-wall="on"] .card,
+html[data-theme="light"][data-wall="on"] .v-card,
+html[data-theme="light"][data-wall="on"] .save-card,
+html[data-theme="light"][data-wall="on"] .pack-card {
+  box-shadow: 0 2px 10px rgba(20, 34, 58, 0.1);
+}
+
+/* ------------------- 设置页里的自定义面板 ------------------- */
+.wp-block {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px dashed rgba(var(--ink), 0.09);
+}
+.wp-head { display: flex; flex-direction: column; gap: 3px; margin-bottom: 12px; }
+.wp-head b { font-size: 12.5px; font-weight: 500; }
+.wp-head span { font-size: 11px; color: var(--dim); }
+.wp-pick { display: flex; gap: 12px; align-items: flex-start; }
+.wp-thumb {
+  width: 104px; height: 64px;
+  flex: 0 0 104px;
+  border-radius: 10px;
+  border: 1px solid var(--line-2);
+  background-color: var(--bg-sunken);
+  background-size: cover;
+  background-position: center;
+  display: grid; place-items: center;
+  overflow: hidden;
+}
+.wp-thumb span { font-size: 10.5px; color: var(--dim); }
+.wp-pick-side { flex: 1; min-width: 0; }
+.wp-pick-side .hint { margin: 8px 0 0; }
+.wp-foot { margin-top: 4px; }
+.segmented.compact .seg { padding: 0 6px; }

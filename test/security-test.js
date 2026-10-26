@@ -430,6 +430,38 @@ async function invoke(channel, payload, event = goodEvent()) {
     await new Promise((r) => server.close(r));
   }
 
+  console.log('\n[12] N5 背景图设置越权');
+  {
+    // 伪造的图片名（路径穿越 / 格式不符）一律清空，不能把任意路径写进配置
+    const r1 = await invoke('settings:save', {
+      wallpaper: { enabled: true, image: '../../evil.png', opacity: 9, blur: 9999, mask: 'hack', ui: -5 },
+    });
+    check('背景设置可以保存', r1.ok === true, JSON.stringify(r1));
+    let cfg = JSON.parse(fs.readFileSync(path.join(USER_DATA, 'smucl-config.json'), 'utf8'));
+    check('不存在的图片被清空', cfg.wallpaper.image === '', JSON.stringify(cfg.wallpaper));
+    check('图片为空时自动关闭启用', cfg.wallpaper.enabled === false);
+    check('不透明度被夹到区间内', cfg.wallpaper.opacity > 0 && cfg.wallpaper.opacity <= 1, String(cfg.wallpaper.opacity));
+    check('模糊被夹到 0~40', cfg.wallpaper.blur >= 0 && cfg.wallpaper.blur <= 40, String(cfg.wallpaper.blur));
+    check('界面不透明度不会被写成负数', cfg.wallpaper.ui >= 0.35, String(cfg.wallpaper.ui));
+    check('非法蒙版回落到默认值', cfg.wallpaper.mask === 'soft', cfg.wallpaper.mask);
+
+    // 即使目录里真有同名文件，文件名不合规也不能用
+    const wallDir = path.join(USER_DATA, 'wallpapers');
+    mkdir(wallDir);
+    const stray = path.join(wallDir, 'evil.png');
+    fs.writeFileSync(stray, 'x');
+    await invoke('settings:save', { wallpaper: { enabled: true, image: 'evil.png' } });
+    cfg = JSON.parse(fs.readFileSync(path.join(USER_DATA, 'smucl-config.json'), 'utf8'));
+    check('不合规的文件名被拒绝', cfg.wallpaper.image === '' && cfg.wallpaper.enabled === false);
+
+    // 合规文件名 + 真实文件才保留
+    const okName = 'wall-1700000000000.png';
+    fs.writeFileSync(path.join(wallDir, okName), 'x');
+    const r3 = await invoke('settings:save', { wallpaper: { enabled: true, image: okName } });
+    check('合规图片可以启用', r3.ok === true && r3.data.wallpaper.image === okName, JSON.stringify(r3));
+    check('启用状态被保留', r3.data.wallpaper.enabled === true);
+  }
+
   Module._load = origLoad;
 
   console.log(`\n===== 结果：${passed} 通过，${failures.length} 失败 =====`);

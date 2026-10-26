@@ -9,7 +9,7 @@
 [![Electron](https://img.shields.io/badge/Electron-45-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6?logo=windows&logoColor=white)](#)
 [![License](https://img.shields.io/badge/license-MIT-3DA639)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.8.1-3b7dd8](#)
+[![Version](https://img.shields.io/badge/version-1.9.0-3b7dd8](#)
 [![Release](https://img.shields.io/github/v/release/Survaetr/SMUCL?label=release&color=3DA639)](https://github.com/Survaetr/SMUCL/releases)
 
 </div>
@@ -28,7 +28,7 @@
 | 模块 | 说明 |
 | --- | --- |
 | 首页 | 版本下拉、玩家名、内存滑块、一键启动；运行环境、公告与新版本提示条 |
-| 版本管理 | 跨目录汇总实例，显示加载器 / 模组数 / 是否版本隔离 / 占用空间，支持启动、打开目录、复制启动命令、删除；启动前自动补全缺失依赖，缺文件时可用「修复依赖」手动补全；启动前自动补全缺失依赖；可导入 PCL / HMCL 导出的整合包 zip（预览 → 同名自动改名 → 校验依赖库） |
+| 版本管理 | 跨目录汇总实例，显示加载器 / 模组数 / 是否版本隔离 / 占用空间，支持启动、打开目录、复制启动命令、删除；启动前自动补全缺失依赖，缺文件时可用「修复依赖」手动补全；可导入 PCL / HMCL 导出的整合包 zip（预览 → 同名自动改名 → 校验依赖库） |
 | 存档 | 扫描所有目录与实例的 `saves`，解析 `level.dat` 得到世界名、版本、模式、最后游玩；支持按文件夹（实例）/ 版本 / 时间分组、定位与移至回收站 |
 | 下载游戏 | 拉取 Mojang 版本清单，按正式版 / 快照 / 旧版筛选，逐行进度条安装；中断的实例显示「修复」；可在线安装 Fabric / Quilt / Forge / NeoForge 加载器（底座缺失自动补装） |
 | 整合包 | 从 Modrinth / CurseForge 搜索并一键安装，自动补原版与加载器，建版本隔离实例；支持导入 / 导出本地 zip |
@@ -36,6 +36,7 @@
 | 账号 | 微软正版登录（设备码流程），令牌用系统凭据加密保存；离线账户照旧可用 |
 | 设置 | Java 运行时扫描与指定、内存、JVM 参数、全屏、显卡偏好（写入 Windows 图形设置）、下载源、并发数、游戏目录管理、自动检查新版本 |
 | 主题 | 深色 / 浅色 / 跟随系统，标题栏右上角一键切换 |
+| 背景自定义 | 导入本地图片作为背景，支持铺满 / 完整 / 拉伸、四种蒙版（柔和 / 上隐 / 下隐 / 暗角）、图片不透明度、模糊、压暗；卡片与侧栏可按「界面不透明度」玻璃化。图片复制到 userData/wallpapers，经自有协议 `smucl-wall://` 读取 |
 | 在线更新 | 检查本仓库 Release，下载 `app-<version>.zip` 增量更新包并自动重启；升级后首次启动弹出更新日志 |
 | 运行日志 | 底部抽屉，实时显示游戏 stdout / stderr，错误行高亮 |
 
@@ -145,6 +146,16 @@ SMUCL/
 https://survaetr.github.io/SMUCL/ （GitHub Pages，内容放在 `gh-pages` 分支根目录）。
 
 ## 更新记录
+
+**v1.9.0**
+
+- 外观设置新增「自定义背景」：导入本地图片即可当背景，图片复制到启动器目录，删原图不影响
+- 显示方式（铺满裁切 / 完整显示 / 拉伸铺满）+ 四种蒙版（柔和 / 上隐 / 下隐 / 暗角）
+- 图片不透明度、模糊、压暗、界面不透明度四个滑杆，拖动即时预览，松手保存
+- 卡片 / 侧栏 / 标题栏支持玻璃化，界面不透明度调低即可透出背景
+- 背景图走专用协议 `smucl-wall://`，只认启动器目录内的文件，路径穿越在设置校验与协议层双重拦截
+- 离线账户启动时日志提示正版验证服务器会拒绝；「无效会话」等报错增加中文解释
+- 正版 token 过期且刷新失败时直接报错，不再用失效 token 启动游戏
 
 **v1.8.1**
 
