@@ -32,6 +32,8 @@ function save(account) {
     accessToken: account.accessToken || '',
     refreshToken: account.refreshToken || '',
     expiresAt: account.expiresAt || 0,
+    // 刷新令牌要用与登录时相同的通道：live = 免注册的 Live 通道，azure = 自备客户端 ID
+    authMode: account.authMode === 'live' ? 'live' : 'azure',
   });
 
   let out;
@@ -75,6 +77,7 @@ function publicInfo() {
     name: a.name,
     uuid: a.uuid,
     expiresAt: a.expiresAt,
+    authMode: a.authMode || 'azure',
     encrypted: Boolean(a.encrypted),
   };
 }

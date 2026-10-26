@@ -733,12 +733,14 @@ function registerIpc() {
     if (stillValid) return a;
 
     const clientId = msClientId();
-    if (!clientId || !a.refreshToken) return a; // 没配置就没法刷新，交给上层判断
+    const mode = a.authMode === 'live' ? 'live' : 'azure';
+    if (!a.refreshToken) return a; // 没有刷新令牌就无从续期，交给上层判断
+    if (mode === 'azure' && !clientId) return a; // 自备通道必须知道客户端 ID
 
     try {
-      const t = await authLib.refreshToken(clientId, a.refreshToken);
-      const prof = await authLib.xboxToMinecraft(t.access_token);
-      return accountLib.save({ ...prof, refreshToken: t.refresh_token || a.refreshToken });
+      const t = await authLib.refreshToken(clientId, a.refreshToken, mode);
+      const prof = await authLib.xboxToMinecraft(t.access_token, mode);
+      return accountLib.save({ ...prof, refreshToken: t.refresh_token || a.refreshToken, authMode: mode });
     } catch (e) {
       if (e.invalidGrant) {
         accountLib.clear(); // 授权已失效（改密码/被撤销），只能重新登录
@@ -783,7 +785,7 @@ function registerIpc() {
   handle('auth:login', async () => {
     if (loginSession) return { ok: false, error: '正在登录中，请先完成上一个授权' };
     const clientId = msClientId();
-    if (!clientId) return { ok: false, needClientId: true, error: '还没有配置客户端 ID' };
+    // 没填客户端 ID 时走免注册的 Live 通道（auth.js 内部处理），不再拦在这里
 
     let d;
     try {
@@ -792,7 +794,7 @@ function registerIpc() {
       return { ok: false, error: e.message };
     }
 
-    loginSession = { cancelled: false, deviceCode: d.deviceCode };
+    loginSession = { cancelled: false, deviceCode: d.deviceCode, mode: d.mode };
 
     // 后台轮询：用户在浏览器里输完码后自动完成
     (async () => {
@@ -802,11 +804,11 @@ function registerIpc() {
         await authLib.sleep(interval * 1000);
         if (!loginSession || loginSession.cancelled) break;
         try {
-          const r = await authLib.pollToken(clientId, d.deviceCode);
+          const r = await authLib.pollToken(clientId, d.deviceCode, d.mode);
           if (r.done) {
             authSend('auth:stage', { stage: 'xbox', message: '正在验证 Xbox 账号…' });
-            const prof = await authLib.xboxToMinecraft(r.tokens.access_token);
-            accountLib.save({ ...prof, refreshToken: r.tokens.refresh_token });
+            const prof = await authLib.xboxToMinecraft(r.tokens.access_token, d.mode);
+            accountLib.save({ ...prof, refreshToken: r.tokens.refresh_token, authMode: d.mode });
             await settingsLib.save({ loginMode: 'msa' });
             loginSession = null;
             authSend('auth:done', accountLib.publicInfo());

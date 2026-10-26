@@ -9,7 +9,7 @@
 [![Electron](https://img.shields.io/badge/Electron-45-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6?logo=windows&logoColor=white)](#)
 [![License](https://img.shields.io/badge/license-MIT-3DA639)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.9.0-3b7dd8](#)
+[![Version](https://img.shields.io/badge/version-1.9.1-3b7dd8](#)
 [![Release](https://img.shields.io/github/v/release/Survaetr/SMUCL?label=release&color=3DA639)](https://github.com/Survaetr/SMUCL/releases)
 
 </div>
@@ -33,7 +33,7 @@
 | 下载游戏 | 拉取 Mojang 版本清单，按正式版 / 快照 / 旧版筛选，逐行进度条安装；中断的实例显示「修复」；可在线安装 Fabric / Quilt / Forge / NeoForge 加载器（底座缺失自动补装） |
 | 整合包 | 从 Modrinth / CurseForge 搜索并一键安装，自动补原版与加载器，建版本隔离实例；支持导入 / 导出本地 zip |
 | 资源下载 | 从 Modrinth 搜索模组 / 光影 / 材质包，按实例的版本与加载器筛选，自动补齐依赖后装入对应目录 |
-| 账号 | 微软正版登录（设备码流程），令牌用系统凭据加密保存；离线账户照旧可用 |
+| 账号 | 微软正版登录（设备码流程），**不需要注册 Azure 应用**，令牌用系统凭据加密保存并按通道自动续期；离线账户照旧可用 |
 | 设置 | Java 运行时扫描与指定、内存、JVM 参数、全屏、显卡偏好（写入 Windows 图形设置）、下载源、并发数、游戏目录管理、自动检查新版本 |
 | 主题 | 深色 / 浅色 / 跟随系统，标题栏右上角一键切换 |
 | 背景自定义 | 导入本地图片作为背景，支持铺满 / 完整 / 拉伸、四种蒙版（柔和 / 上隐 / 下隐 / 暗角）、图片不透明度、模糊、压暗；卡片与侧栏可按「界面不透明度」玻璃化。图片复制到 userData/wallpapers，经自有协议 `smucl-wall://` 读取 |
@@ -146,6 +146,15 @@ SMUCL/
 https://survaetr.github.io/SMUCL/ （GitHub Pages，内容放在 `gh-pages` 分支根目录）。
 
 ## 更新记录
+
+**v1.9.1**
+
+- 微软登录改为免注册：默认走微软公共客户端（Live OAuth），点一下就能出八位码，到 microsoft.com/link 授权
+- 背景：微软已不允许个人账号在目录外注册应用，而建目录需要 Azure 订阅，原流程对普通用户实际不可用
+- 自备 Azure 客户端 ID 仍然支持，填了优先用用户自己的应用身份发起授权
+- 账号记住登录通道（`authMode: live|azure`），续期走对应接口，24 小时后自动续，不会莫名掉线
+- Live 通道换 Xbox Live 时用 `t=` 前缀（Azure v2 通道用 `d=`），混用会 401
+- 侧栏玩家卡与首页公告区分「正版账户 / 离线账户」
 
 **v1.9.0**
 

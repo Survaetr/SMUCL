@@ -727,9 +727,12 @@ function renderAccount() {
       : '注意：当前系统不支持加密存储，令牌以明文保存在本机配置目录。';
     $('#sidePlayer').textContent = a.name;
     $('#avatar').textContent = (a.name || 'S').slice(0, 1).toUpperCase();
+    if ($('#sideAccountMode')) $('#sideAccountMode').textContent = '正版账户';
   } else {
     $('#msClientIdInput').value = a.clientId || '';
     $('#offlineNameLabel').textContent = (S.settings && S.settings.playerName) || 'Steve';
+    $('#sidePlayer').textContent = (S.settings && S.settings.playerName) || 'Steve';
+    if ($('#sideAccountMode')) $('#sideAccountMode').textContent = '离线账户';
   }
 }
 

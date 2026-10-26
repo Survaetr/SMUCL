@@ -16,6 +16,24 @@ const DEVICE_CODE_URL = 'https://login.microsoftonline.com/consumers/oauth2/v2.0
 const TOKEN_URL = 'https://login.microsoftonline.com/consumers/oauth2/v2.0/token';
 const SCOPE = 'XboxLive.signin offline_access';
 
+/*
+ * 免注册通道（默认）。
+ *
+ * 微软已经不允许个人账号在「目录外」注册应用，而没有 Azure 订阅就拿不到目录，
+ * 普通用户因此根本注册不出客户端 ID —— 这条 Azure 通道实际上只剩开发者能用。
+ * 所以默认改走微软自家的 Live OAuth 公共客户端（MBI_SSL），和 HMCL / PCL 用的是同一条：
+ *   · 不需要任何注册
+ *   · 设备码在 https://www.microsoft.com/link 输入
+ *   · 拿到的 token 换 Xbox Live 时要用 t= 前缀（Azure v2 通道用 d=，这是唯一关键差异）
+ * 授权页显示的是微软自家应用名，不是 SMUCL，属预期行为。
+ *
+ * 如果用户自己在设置里填了 Azure 客户端 ID，则优先走 Azure 通道。
+ */
+const LIVE_CLIENT_ID = '00000000402b5328';
+const LIVE_DEVICE_URL = 'https://login.live.com/oauth20_connect.srf';
+const LIVE_TOKEN_URL = 'https://login.live.com/oauth20_token.srf';
+const LIVE_SCOPE = 'service::user.auth.xboxlive.com::MBI_SSL';
+
 const XBL_URL = 'https://user.auth.xboxlive.com/user/authenticate';
 const XSTS_URL = 'https://xsts.auth.xboxlive.com/xsts/authorize';
 const MC_LOGIN_URL = 'https://api.minecraftservices.com/authentication/login_with_xbox';
@@ -58,14 +76,25 @@ async function postForm(url, form) {
 }
 
 /** 第一步：拿设备码，给用户看 user_code */
+/**
+ * 第一步：取设备码。
+ * clientId 为空 → 走免注册的 Live 通道；填了 → 走 Azure 通道。
+ */
 async function startDeviceCode(clientId) {
-  if (!clientId) throw new Error('还没有配置客户端 ID');
-  const r = await postForm(DEVICE_CODE_URL, { client_id: clientId, scope: SCOPE });
+  const azure = Boolean(clientId);
+  const r = azure
+    ? await postForm(DEVICE_CODE_URL, { client_id: clientId, scope: SCOPE })
+    : await postForm(LIVE_DEVICE_URL, {
+        client_id: LIVE_CLIENT_ID,
+        scope: LIVE_SCOPE,
+        response_type: 'device_code',
+      });
   if (!r.ok || !r.json || !r.json.device_code) {
     const msg = (r.json && (r.json.error_description || r.json.error)) || `HTTP ${r.status}`;
     throw new Error(`获取设备码失败：${msg}`);
   }
   return {
+    mode: azure ? 'azure' : 'live',
     deviceCode: r.json.device_code,
     userCode: r.json.user_code,
     url: r.json.verification_uri,
@@ -78,12 +107,19 @@ async function startDeviceCode(clientId) {
 /**
  * 第二步：轮询换 token。用户没完成时返回 pending，其他错误直接抛。
  */
-async function pollToken(clientId, deviceCode) {
-  const r = await postForm(TOKEN_URL, {
-    grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
-    client_id: clientId,
-    device_code: deviceCode,
-  });
+async function pollToken(clientId, deviceCode, mode = 'azure') {
+  const live = mode === 'live';
+  const r = live
+    ? await postForm(LIVE_TOKEN_URL, {
+        client_id: LIVE_CLIENT_ID,
+        device_code: deviceCode,
+        grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+      })
+    : await postForm(TOKEN_URL, {
+        grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+        client_id: clientId,
+        device_code: deviceCode,
+      });
   if (r.ok && r.json && r.json.access_token) {
     return { done: true, tokens: r.json };
   }
@@ -98,13 +134,21 @@ async function pollToken(clientId, deviceCode) {
 }
 
 /** 刷新令牌 */
-async function refreshToken(clientId, refresh) {
-  const r = await postForm(TOKEN_URL, {
-    grant_type: 'refresh_token',
-    client_id: clientId,
-    refresh_token: refresh,
-    scope: SCOPE,
-  });
+async function refreshToken(clientId, refresh, mode = 'azure') {
+  const live = mode === 'live';
+  const r = live
+    ? await postForm(LIVE_TOKEN_URL, {
+        grant_type: 'refresh_token',
+        client_id: LIVE_CLIENT_ID,
+        refresh_token: refresh,
+        scope: LIVE_SCOPE,
+      })
+    : await postForm(TOKEN_URL, {
+        grant_type: 'refresh_token',
+        client_id: clientId,
+        refresh_token: refresh,
+        scope: SCOPE,
+      });
   if (r.ok && r.json && r.json.access_token) return r.json;
   const desc = (r.json && (r.json.error_description || r.json.error)) || `HTTP ${r.status}`;
   const e = new Error(desc);
@@ -113,11 +157,13 @@ async function refreshToken(clientId, refresh) {
 }
 
 /** Xbox Live → XSTS → Minecraft */
-async function xboxToMinecraft(msAccessToken) {
+async function xboxToMinecraft(msAccessToken, mode = 'azure') {
+  // Live 通道的 token 用 t= 前缀，Azure v2 通道用 d=，混用会直接 401
+  const ticket = mode === 'live' ? `t=${msAccessToken}` : `d=${msAccessToken}`;
   let xbl;
   try {
     xbl = await postJson(XBL_URL, {
-      Properties: { AuthMethod: 'RPS', SiteName: 'user.auth.xboxlive.com', RpsTicket: `d=${msAccessToken}` },
+      Properties: { AuthMethod: 'RPS', SiteName: 'user.auth.xboxlive.com', RpsTicket: ticket },
       RelyingParty: 'http://auth.xboxlive.com',
       TokenType: 'JWT',
     });
