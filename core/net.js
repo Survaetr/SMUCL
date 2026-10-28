@@ -53,27 +53,69 @@ function fileSize(p) {
 }
 
 /**
+ * 读文件头判断是不是 zip/jar。
+ * 镜像偶尔会用 200 回一个 HTML 错误页或 JSON 报错，字节数看着正常，
+ * 存下来的「jar」其实一解就炸，最后表现为游戏启动十秒后崩溃。
+ */
+function isZipFile(file) {
+  let fd;
+  try {
+    fd = fs.openSync(file, 'r');
+    const head = Buffer.alloc(4);
+    const n = fs.readSync(fd, head, 0, 4, 0);
+    if (n < 4) return false;
+    // PK\x03\x04 普通 zip；PK\x05\x06 空归档；PK\x07\x08 跨卷
+    return (
+      (head[0] === 0x50 && head[1] === 0x4b && head[2] === 0x03 && head[3] === 0x04) ||
+      (head[0] === 0x50 && head[1] === 0x4b && head[2] === 0x05 && head[3] === 0x06) ||
+      (head[0] === 0x50 && head[1] === 0x4b && head[2] === 0x07 && head[3] === 0x08)
+    );
+  } catch {
+    return false;
+  } finally {
+    if (fd !== undefined) {
+      try {
+        fs.closeSync(fd);
+      } catch {}
+    }
+  }
+}
+
+/**
  * 下载单个文件。已存在且大小一致则跳过（增量安装的关键）。
  * 若给了 expectedSha1，则大小一致也要比对哈希，不一致就删掉重下；
  * 下载完成的临时文件在改名之前先校验，避免把损坏内容写进正式路径。
+ * @param {object} opts
+ * @param {boolean} [opts.expectZip] 目标是 jar/zip 时必须真的是 zip 头，否则视为失败
+ * @param {number} [opts.minBytes] 体积下限，用来挡掉错误页
  * @returns {Promise<{size:number, skipped:boolean}>}
  */
 async function download(url, dest, opts = {}) {
-  const { expectedSize = 0, expectedSha1 = '', retries = 3, onBytes = null, timeout = 30000 } = opts;
+  const {
+    expectedSize = 0,
+    expectedSha1 = '',
+    retries = 3,
+    onBytes = null,
+    timeout = 30000,
+    expectZip = false,
+    minBytes = 0,
+  } = opts;
   const wantSha1 = String(expectedSha1 || '').toLowerCase();
 
   const existing = fileSize(dest);
-  if (existing > 0 && (!expectedSize || existing === expectedSize)) {
+  if (existing > 0 && (!expectedSize || existing === expectedSize) && (!minBytes || existing >= minBytes)) {
     let trust = true;
     if (wantSha1 && /^[0-9a-f]{40}$/.test(wantSha1)) {
       const got = await sha1File(dest).catch(() => '');
       trust = got === wantSha1;
-      if (!trust) {
-        // 已有文件与官方哈希不符（残留损坏或被替换），删掉重新下载
-        try {
-          await fsp.unlink(dest);
-        } catch {}
-      }
+    }
+    // 没有哈希可比时（加载器的库大多没有），至少确认它是个能打开的压缩包
+    if (trust && expectZip && !isZipFile(dest)) trust = false;
+    if (!trust) {
+      // 已有文件明显不对（残留损坏 / 镜像写进来的错误页），删掉重新下载
+      try {
+        await fsp.unlink(dest);
+      } catch {}
     }
     if (trust) {
       if (onBytes) onBytes(existing);
@@ -115,6 +157,19 @@ async function download(url, dest, opts = {}) {
         }
       }
 
+      // 内容层面的问题重试也没用（同一个地址会再给一份同样的坏文件），
+      // 直接抛给上层换源
+      if (minBytes && received < minBytes) {
+        const e = new Error(`内容过小（${received} 字节），可能是错误页`);
+        e.noRetry = true;
+        throw e;
+      }
+      if (expectZip && !isZipFile(tmp)) {
+        const e = new Error('下载到的不是有效的 jar/zip，多半是镜像返回了错误页');
+        e.noRetry = true;
+        throw e;
+      }
+
       await fsp.rename(tmp, dest);
       return { size: received, skipped: false };
     } catch (e) {
@@ -122,6 +177,7 @@ async function download(url, dest, opts = {}) {
       try {
         await fsp.unlink(tmp);
       } catch {}
+      if (e && e.noRetry) break;
       if (attempt < retries) await sleep(500 * (attempt + 1));
     }
   }
@@ -141,4 +197,4 @@ async function pool(items, limit, worker) {
   await Promise.all(runners);
 }
 
-module.exports = { fetchJson, download, pool, fileSize, sleep, sha1File, UA };
+module.exports = { fetchJson, download, pool, fileSize, sleep, sha1File, isZipFile, UA };

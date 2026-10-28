@@ -503,6 +503,7 @@ function renderInstalled() {
         </div>
         <div class="v-actions">
           <button class="btn-sm btn-primary" data-act="launch">启动</button>
+          <button class="btn-sm" data-act="mods" title="到「资源」页给这个实例装 Mod / 光影 / 材质包">装 Mod</button>
           <button class="btn-sm" data-act="folder">目录</button>
           <button class="btn-sm" data-act="copy">命令</button>
           <button class="btn-sm" data-act="export">导出</button>
@@ -672,7 +673,11 @@ async function loadLoaderVersions() {
   sel.innerHTML = r.data
     .map((v) => `<option value="${esc(v.version)}">${esc(v.version)}${v.stable ? '' : '（beta）'}</option>`)
     .join('');
-  setLoaderStatus(`${LOADER_LABEL[loader]} 共 ${r.data.length} 个版本可用，最新 ${r.data[0].version}`, '');
+  // 默认选中第一个「正式版」，避免一进来就落在预发布版上
+  const firstStable = r.data.findIndex((v) => v.stable);
+  if (firstStable > 0) sel.selectedIndex = firstStable;
+  const head = `${LOADER_LABEL[loader]} 共 ${r.data.length} 个版本可用，最新 ${r.data[0].version}`;
+  setLoaderStatus(r.note ? `${head}（${r.note}）` : head, r.fallback ? 'warn' : '');
 }
 
 async function installLoader() {
@@ -696,8 +701,15 @@ async function installLoader() {
       toast(r.error, 'err');
       return;
     }
-    setLoaderStatus(`已安装 ${r.data.id}`, '');
-    toast(`${r.data.label} ${ver} 安装完成`, 'ok');
+    // 安装后自检的结果：补过文件、或者主类对不上，都要如实告诉用户
+    const warn = (r.data.warnings || [])[0];
+    if (warn) {
+      setLoaderStatus(`已安装 ${r.data.id}，但有需要留意的地方：${warn}`, 'warn');
+      toast(warn, 'warn');
+    } else {
+      setLoaderStatus(`已安装 ${r.data.id}${r.data.fixed ? `（自动补全了 ${r.data.fixed} 个文件）` : ''}`, '');
+      toast(`${r.data.label} ${ver} 安装完成`, 'ok');
+    }
     await refreshInstalledAndRender();
   } finally {
     btn.disabled = false;
@@ -1185,9 +1197,12 @@ function renderContentResults(loading) {
   }
   if (!S.contentHits.length) {
     grid.innerHTML = '';
+    const kw = ($('#contentSearch').value || '').trim();
     empty.hidden = false;
-    $('#contentEmptyTitle').textContent = '没有结果';
-    $('#contentEmptyText').textContent = '换个关键词，或把游戏版本 / 加载器改成「不限」再试。';
+    $('#contentEmptyTitle').textContent = kw ? '没有结果' : '还没有搜索';
+    $('#contentEmptyText').textContent = kw
+      ? '换个关键词，或把游戏版本 / 加载器改成「不限」再试。'
+      : '输入关键词后回车（或点「搜索」），结果会显示在这里，点开就能装到这个实例。';
     return;
   }
 
@@ -2398,6 +2413,24 @@ function bindEvents() {
       } else toast(r.error, 'err');
     } else if (btn.dataset.act === 'export') {
       exportPackFlow(v);
+    } else if (btn.dataset.act === 'mods') {
+      // 直接把「资源」页切到这个实例：版本、加载器、安装位置一并带过去，
+      // 省得用户自己在下拉里翻（很多人不知道那里能搜 Mod）
+      S.selected = key;
+      renderPlaySelect();
+      S.contentKind = 'mod';
+      switchView('content');
+      $$('#contentKind .seg').forEach((x) => x.classList.toggle('active', x.dataset.kind === 'mod'));
+      renderContentFilters();
+      if (v.mcVersion) $('#contentMc').value = v.mcVersion;
+      if (v.loader) {
+        const opt = Array.from($('#contentLoader').options).find((o) => o.value === v.loader);
+        if (opt) $('#contentLoader').value = v.loader;
+      }
+      $('#contentTarget').value = `${v.dir}|${v.id}`;
+      $('#contentSearch').value = '';
+      $('#contentSearch').focus();
+      appendLog(`> 已切到「资源」页，搜索关键词即可给 ${v.id} 装 Mod`);
     } else if (btn.dataset.act === 'remove') {
       if (!confirm(`确定删除版本 ${v.id}？会移除该实例目录，不可撤销。`)) return;
       const r = await api.remove(v.id, v.dir);
@@ -2612,6 +2645,11 @@ function bindEvents() {
   $('#btnToggleLog').onclick = () => setLogOpen(false);
   $('#btnClearLog').onclick = () => ($('#logBody').innerHTML = '');
   $('#logFab').onclick = () => setLogOpen(true);
+  $('#btnOpenLogFile').onclick = async () => {
+    const r = await api.openLogFile();
+    if (!r.ok) toast(r.error, 'warn');
+    else toast('已在文件夹中定位日志文件', 'ok');
+  };
   $('#btnRepairDeps').onclick = async (e) => {
     const cur = currentVersion();
     if (!cur) {

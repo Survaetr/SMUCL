@@ -9,7 +9,7 @@
 [![Electron](https://img.shields.io/badge/Electron-45-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6?logo=windows&logoColor=white)](#)
 [![License](https://img.shields.io/badge/license-MIT-3DA639)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.9.2-3b7dd8](#)
+[![Version](https://img.shields.io/badge/version-1.9.3-3b7dd8](#)
 [![Release](https://img.shields.io/github/v/release/Survaetr/SMUCL?label=release&color=3DA639)](https://github.com/Survaetr/SMUCL/releases)
 
 </div>
@@ -28,7 +28,7 @@
 | 模块 | 说明 |
 | --- | --- |
 | 首页 | 版本下拉、玩家名、内存滑块、一键启动；运行环境、公告与新版本提示条 |
-| 版本管理 | 跨目录汇总实例，显示加载器 / 模组数 / 是否版本隔离 / 占用空间，支持启动、打开目录、复制启动命令、删除；启动前自动补全缺失依赖，缺文件时可用「修复依赖」手动补全；可导入 PCL / HMCL 导出的整合包 zip（预览 → 同名自动改名 → 校验依赖库） |
+| 版本管理 | 跨目录汇总实例，显示加载器 / 模组数 / 是否版本隔离 / 占用空间，支持启动、打开目录、复制启动命令、删除；启动前自动补全缺失依赖（含校验 jar 是否损坏），缺文件时可用「修复依赖」手动补全；可导入 PCL / HMCL 导出的整合包 zip（预览 → 同名自动改名 → 校验依赖库） |
 | 存档 | 扫描所有目录与实例的 `saves`，解析 `level.dat` 得到世界名、版本、模式、最后游玩；支持按文件夹（实例）/ 版本 / 时间分组、定位与移至回收站 |
 | 下载游戏 | 拉取 Mojang 版本清单，按正式版 / 快照 / 旧版筛选，逐行进度条安装；中断的实例显示「修复」；可在线安装 Fabric / Quilt / Forge / NeoForge 加载器（底座缺失自动补装） |
 | 整合包 | 从 Modrinth / CurseForge 搜索并一键安装，自动补原版与加载器，建版本隔离实例；支持导入 / 导出本地 zip |
@@ -146,6 +146,17 @@ SMUCL/
 https://survaetr.github.io/SMUCL/ （GitHub Pages，内容放在 `gh-pages` 分支根目录）。
 
 ## 更新记录
+
+**v1.9.3**
+
+- 镜像安装可靠性：每个 jar 下载后校验 zip 头，镜像回错误页 / 半截文件会被识别并自动换源
+- 下载失败不再静默跳过；安装结束统一跑完整性校验，补不齐直接报「安装不完整，请换下载源重试」
+- 加载器版本列表主源失败或为空时自动换另一个源；beta/alpha/rc 单独标注、排在正式版之后，默认选正式版
+- 安装器下载加体积与 zip 头校验；失败按原因给中文提示（文件损坏 / Java 太旧 / 缺 launcher_profiles）
+- 加载器装完自动自检并补全依赖，主类对不上当场提示
+- 完整启动日志落盘 `%APPDATA%\SMUCL\logs`，日志面板新增「日志文件」按钮
+- 新增崩溃解释：jar 损坏、原始 log4j XML 日志
+- 版本卡片新增「装 Mod」，一键带着版本 / 加载器跳到资源页
 
 **v1.9.2**
 

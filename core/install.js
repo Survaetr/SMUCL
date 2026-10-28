@@ -288,6 +288,8 @@ async function install(id, entry, source, onProgress) {
         {
           expectedSize: t.size,
           expectedSha1: t.sha1 || '',
+          // 早期版本的库没有 sha1，至少确认下下来的是个能打开的压缩包
+          expectZip: /\.(jar|zip)$/i.test(t.dest),
           retries: 1,
           onBytes: (n) => {
             bytes += n;
@@ -334,6 +336,36 @@ async function install(id, entry, source, onProgress) {
         /* 单文件失败不阻断安装 */
       }
     }
+  }
+
+  // ---------- 安装后完整性校验 ----------
+  // 下载失败以前只记一条 warning 就报「安装完成」，用户点启动才发现跑不起来
+  // （典型症状：十秒后进程退出、日志里全是看不懂的 Java 报错）。
+  // 这里按版本 JSON 再核对一遍，缺的当场补，补不齐就明确失败。
+  try {
+    const repair = require('./repair');
+    report({ stage: 'verify', message: '校验文件完整性', percent: 99 });
+    const before = repair.check(mcDir, id);
+    if (before.missing.length) {
+      log(`有 ${before.missing.length} 个文件没下完整，正在补全…`);
+      const r = await repair.fix(mcDir, id, (p) =>
+        report({ stage: 'verify', message: `补全文件 ${p.done}/${p.total}`, percent: 99 })
+      );
+      if (r.remaining.length) {
+        const sample = r.remaining.slice(0, 3).map((x) => x.name).join('、');
+        return {
+          ok: false,
+          id,
+          files: total,
+          bytes,
+          seconds: Math.round((Date.now() - started) / 1000),
+          warnings,
+          error: `还有 ${r.remaining.length} 个文件没补齐（例如 ${sample}），安装不完整。请把「下载源」换成另一个后重试。`,
+        };
+      }
+    }
+  } catch (e) {
+    log(`完整性校验没跑通：${e.message}`);
   }
 
   report({ stage: 'done', message: '安装完成', percent: 100, done: total, total });

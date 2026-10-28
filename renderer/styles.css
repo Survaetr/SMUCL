@@ -1584,3 +1584,14 @@ html[data-theme="light"][data-wall="on"] .pack-card {
   background-size: 100% 100%;
   image-rendering: pixelated;
 }
+
+/* 版本卡片的操作按钮变多了（启动 / 装 Mod / 目录 / 命令 / 导出 / 删除），
+   等分一行会挤出卡片边界，改成允许换行、每行至少两个 */
+.v-actions {
+  flex-wrap: wrap;
+}
+.v-actions .btn-sm {
+  flex: 1 1 auto;
+  min-width: calc(33.3% - 6px);
+  white-space: nowrap;
+}

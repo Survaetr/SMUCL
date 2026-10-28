@@ -1,7 +1,7 @@
 {
   "name": "smucl",
   "productName": "SMUCL",
-  "version": "1.9.2",
+  "version": "1.9.3",
   "description": "SMUCL — 上海海事大学 Minecraft 启动器",
   "main": "main.js",
   "author": "SMUCL",

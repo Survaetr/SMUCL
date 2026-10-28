@@ -33,6 +33,7 @@ contextBridge.exposeInMainWorld('smucl', {
   launch: (id, dir) => ipcRenderer.invoke('game:launch', { id, dir }),
   kill: () => ipcRenderer.invoke('game:kill'),
   repairDeps: (id, dir) => ipcRenderer.invoke('game:repair', { id, dir }),
+  openLogFile: () => ipcRenderer.invoke('game:openLog'),
   save: (patch) => ipcRenderer.invoke('settings:save', patch),
   wallpaperPick: () => ipcRenderer.invoke('wallpaper:pick'),
   wallpaperClear: () => ipcRenderer.invoke('wallpaper:clear'),

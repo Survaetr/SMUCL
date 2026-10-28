@@ -430,6 +430,65 @@ function getDirs() {
   return dirsLib.all(settingsLib.all());
 }
 
+/* ------------------------------------------------------------------ 启动日志落盘 */
+// 界面里的日志面板只保留最近若干行，用户截图常常刚好缺掉最关键那几行。
+// 这里把完整输出（含 stderr）写进 userData/logs/，出问题让用户把文件发过来即可。
+let launchLogStream = null;
+let launchLogPath = '';
+
+function logsDir() {
+  const dir = path.join(app.getPath('userData'), 'logs');
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function closeLaunchLog() {
+  if (launchLogStream) {
+    try {
+      launchLogStream.end();
+    } catch {
+      /* 已经关了 */
+    }
+  }
+  launchLogStream = null;
+}
+
+function openLaunchLog(versionId) {
+  closeLaunchLog();
+  launchLogPath = '';
+  try {
+    const dir = logsDir();
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const file = path.join(dir, `launch-${versionId}-${stamp}.log`);
+    launchLogStream = fs.createWriteStream(file, { flags: 'w' });
+    launchLogPath = file;
+    // 只留最近 10 份，单个日志几 MB 也不该无限堆
+    const olds = fs
+      .readdirSync(dir)
+      .filter((n) => n.startsWith('launch-') && n.endsWith('.log'))
+      .sort();
+    while (olds.length > 10) {
+      const victim = olds.shift();
+      try {
+        fs.unlinkSync(path.join(dir, victim));
+      } catch {
+        /* 删不掉就算了 */
+      }
+    }
+  } catch {
+    launchLogStream = null;
+  }
+}
+
+function writeLaunchLog(line) {
+  if (!launchLogStream) return;
+  try {
+    launchLogStream.write(`${line}\n`);
+  } catch {
+    /* 写盘失败不影响游戏 */
+  }
+}
+
 function appState() {
   const settings = settingsLib.all();
   const dirs = getDirs();
@@ -685,6 +744,10 @@ function registerIpc() {
       const result = await installer.install(versionId, { url: metaUrl }, source, (p) => {
         if (win && !win.isDestroyed()) win.webContents.send('install:progress', p);
       });
+      // install() 现在会在安装后做完整性校验，补不齐会返回 ok:false
+      if (!result || result.ok === false) {
+        return { ok: false, error: (result && result.error) || '安装未完成' };
+      }
       return { ok: true, data: result };
     } catch (e) {
       if (win && !win.isDestroyed()) {
@@ -915,6 +978,14 @@ function registerIpc() {
     [/Failed to locate library|UnsatisfiedLinkError/i, '缺少本机 DLL，点日志右上角「修复依赖」重新下载本地库。'],
     [/IllegalStateException: Duplicate key/i, 'classpath 里有重复的库，点日志右上角「修复依赖」或在版本页重新安装。'],
     [
+      /Invalid or corrupt jarfile|zip END header not found|invalid LOC header|error in opening zip file/i,
+      '有个 jar 是坏的（多半是镜像返回了错误页）。点日志右上角「修复依赖」，它会按文件头重新校验并换源重下。',
+    ],
+    [
+      /<log4j:(Event|Message)/,
+      '日志里出现原始 log4j XML，说明 classpath 上有解析不了的 jar（通常是下载损坏）。点「修复依赖」可自动重下。',
+    ],
+    [
       /无效会话|Invalid session|Failed to verify username|Failed to log in|Invalid credentials/i,
       '服务器开启了正版验证（Hypixel、多数公共服都是）。请在「设置 → 账号」用微软正版账号登录，离线账户进不去。',
     ],
@@ -925,7 +996,11 @@ function registerIpc() {
     const versionId = safe.assertVersionId(id);
     const gameDir = dir ? assertInGameDirs(dir, '游戏目录') : settingsLib.all().mcDir;
     const settings = settingsLib.all();
-    const logLine = (line) => win && !win.isDestroyed() && win.webContents.send('game:log', { line });
+    openLaunchLog(versionId);
+    const logLine = (line) => {
+      writeLaunchLog(line);
+      if (win && !win.isDestroyed()) win.webContents.send('game:log', { line });
+    };
     try {
       const meta = versionLib.loadVersionJson(gameDir, versionId);
 
@@ -986,16 +1061,22 @@ function registerIpc() {
         onError: (err) => win && !win.isDestroyed() && win.webContents.send('game:error', { message: err.message }),
         onExit: (code) => {
           gameProc = null;
-          if (win && !win.isDestroyed()) win.webContents.send('game:exit', { code });
+          writeLaunchLog(`> 进程退出，代码 ${code}`);
+          closeLaunchLog();
+          if (win && !win.isDestroyed()) {
+            win.webContents.send('game:exit', { code, logPath: launchLogPath || '' });
+          }
         },
       });
 
       gameProc = proc.child;
       return {
         ok: true,
-        data: { pid: proc.pid, java: picked, required, command: proc.command },
+        data: { pid: proc.pid, java: picked, required, command: proc.command, logPath: launchLogPath },
       };
     } catch (e) {
+      writeLaunchLog(`> 启动失败：${e.message}`);
+      closeLaunchLog();
       return { ok: false, error: e.message };
     }
   });
@@ -1005,10 +1086,20 @@ function registerIpc() {
     try {
       gameProc.kill();
       gameProc = null;
+      closeLaunchLog();
       return { ok: true };
     } catch (e) {
       return { ok: false, error: e.message };
     }
+  });
+
+  // 日志面板的「日志文件」：把完整日志所在位置打开，方便直接把文件发给别人
+  handle('game:openLog', async () => {
+    if (!launchLogPath || !fs.existsSync(launchLogPath)) {
+      throw new Error('还没有生成日志文件，先启动一次游戏');
+    }
+    shell.showItemInFolder(launchLogPath);
+    return { ok: true, data: { path: launchLogPath } };
   });
 
   // 手动补全依赖（日志面板的「修复依赖」）
@@ -1280,9 +1371,10 @@ function registerIpc() {
       if (!url) return { ok: false, error: `还没有安装原版 ${mcVersion}，请先在下方列表里下载` };
       send({ stage: 'base', message: `先补装原版 ${mcVersion}` });
       try {
-        await installer.install(mcVersion, { url }, sourceOf(), (p) => {
+        const baseRes = await installer.install(mcVersion, { url }, sourceOf(), (p) => {
           if (p && p.stage) send({ stage: 'base', percent: p.percent, message: `原版 ${mcVersion}：${p.message || ''}` });
         });
+        if (baseRes && baseRes.ok === false) throw new Error(baseRes.error || '原版安装未完成');
       } catch (e) {
         send({ stage: 'error', message: `原版安装失败：${e.message}` });
         return { ok: false, error: `原版安装失败：${e.message}` };

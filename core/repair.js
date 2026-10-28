@@ -35,6 +35,10 @@ function isPresent(t) {
   const size = sizeOf(t.dest);
   if (size <= 0) return false; // 不存在，或占位了个 0 字节的空文件
   if (t.size && size < t.size) return false; // 下载中断留下的半截文件
+  // 镜像有时用 200 回一份 HTML 错误页，字节数看着正常但一解就炸，
+  // 游戏会在启动十秒后崩掉且日志完全指不到原因。
+  // jar/zip 必须真的是压缩包（PK 头），否则按缺失处理，由 fix() 换源重下。
+  if (/\.(jar|zip)$/i.test(t.dest) && !net.isZipFile(t.dest)) return false;
   return true;
 }
 
@@ -115,11 +119,13 @@ async function fix(mcDir, id, onProgress) {
 
   await net.pool(missing, 3, async (t) => {
     let lastErr = null;
+    const isJar = /\.(jar|zip)$/i.test(t.dest);
     for (const url of t.urls) {
       try {
         await net.download(url, t.dest, {
           expectedSize: t.size || 0,
           expectedSha1: t.sha1 || '',
+          expectZip: isJar,
           retries: 1,
           timeout: 60000,
         });
