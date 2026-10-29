@@ -14,6 +14,19 @@
 
 </div>
 
+> [!IMPORTANT]
+> **想直接用，请别下这个仓库的 ZIP。**
+> 仓库页绿色的 `Code → Download ZIP` 拿到的是源码，解压后只有 `main.js`、`core/`、`build/` 这些文件，
+> **没有 `SMUCL.exe`**，要装 Node.js 才能跑。
+>
+> 免安装版直链：[**SMUCL-1.9.3-portable.zip**](https://github.com/Survaetr/SMUCL/releases/download/v1.9.3/SMUCL-1.9.3-portable.zip)（142 MB，解压后双击 `SMUCL.exe`）
+> ·
+> 国内网盘：[夸克网盘](https://pan.quark.cn/s/a054da815452)
+> ·
+> 介绍页：[survaetr.github.io/SMUCL](https://survaetr.github.io/SMUCL/)
+>
+> Release 里的 `app-*.zip` 只有 0.36 MB，是启动器自更新用的增量包，同样不能单独运行。
+
 界面综合了两款启动器的信息架构与交互习惯：**SJMC Launcher** 的分区清晰、以版本为中心的管理方式，
 以及常见国产启动器「一屏启动」的首页布局；视觉上做了 Minecraft 化处理——校徽被重构为像素图标，
 主按钮采用草方块绿的斜角浮雕，面板使用像素描边与内高光。
