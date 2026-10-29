@@ -645,7 +645,7 @@
         <div>
           <span class="kicker">Download</span>
           <h3>选择下载方式</h3>
-          <p>推荐网盘，国内直连更稳；GitHub 用来查源码和更新日志。</p>
+          <p>两条线路的包完全一样，都是解压即用的完整版。网盘国内速度更快，GitHub 不用登录、能直接看到更新日志。</p>
         </div>
       </div>
 
@@ -681,19 +681,19 @@
         </article>
 
         <article class="card dl-card reveal">
-          <span class="tag plain">开发者 · 源码</span>
+          <span class="tag plain">备用线路 · 直链下载</span>
           <h4>GitHub</h4>
-          <p>完整源码、版本历史与更新日志。已经装过 SMUCL 的用户不用在这里下载，启动器会自己更新。</p>
-          <a class="btn btn-line" href="https://github.com/Survaetr/SMUCL/releases/latest" target="_blank" rel="noopener">
-            前往 Releases
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7"/><path d="M8 7h9v9"/></svg>
+          <p>和网盘里是同一个完整免安装包，直接点下面的按钮下载，不用登录。已经装过 SMUCL 的用户不必在这里下，启动器会自己更新。</p>
+          <a class="btn btn-line" href="https://github.com/Survaetr/SMUCL/releases/download/v1.9.3/SMUCL-1.9.3-portable.zip" target="_blank" rel="noopener">
+            下载免安装包（142 MB）
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 20h16"/></svg>
           </a>
-          <a class="mini" href="https://github.com/Survaetr/SMUCL" target="_blank" rel="noopener">github.com/Survaetr/SMUCL</a>
+          <a class="mini" href="https://github.com/Survaetr/SMUCL/releases/latest" target="_blank" rel="noopener">更新日志 · 全部历史版本</a>
 
           <ul class="hints">
-            <li>Release 里的 <code style="color:var(--gold)">app-*.zip</code> 是增量更新包，只给启动器自更新用，不能单独运行</li>
+            <li><b style="color:var(--gold)">不要点仓库页绿色的 Code → Download ZIP</b>：那是源码，解压后只有 <code>main.js</code>、<code>core</code> 这些文件，没有 <code>SMUCL.exe</code></li>
+            <li>Release 里的 <code style="color:var(--gold)">app-*.zip</code> 只有 0.36 MB，是给启动器自更新用的增量包，不能单独运行</li>
             <li>想自己编译：<code style="color:var(--gold)">git clone</code> 后 <code style="color:var(--gold)">npm i &amp;&amp; npx electron .</code></li>
-            <li>问题请开 Issue，或发邮件到 <a class="mail" href="mailto:liuzhjb666@163.com">liuzhjb666@163.com</a>，PR 同样欢迎</li>
           </ul>
         </article>
       </div>
@@ -815,7 +815,12 @@
 
         <details>
           <summary>下载下来是一堆文件，怎么启动？</summary>
-          <p>右键压缩包 → 解压到文件夹，然后双击里面的 <code>SMUCL.exe</code>。不要在压缩软件里直接双击，否则会缺文件。</p>
+          <p>先确认解压出来的是完整包：根目录里应该能看到 <code>SMUCL.exe</code>、<code>resources</code>、<code>locales</code> 这些东西。有的话右键压缩包 → 解压到文件夹，双击 <code>SMUCL.exe</code> 即可，不要在压缩软件里直接双击（会缺文件）。</p>
+        </details>
+
+        <details>
+          <summary>解压后只有 main.js、core、build 这些文件夹，没有 SMUCL.exe？</summary>
+          <p>那是下载成了<b>源码包</b>（文件名通常叫 <code>SMUCL-main.zip</code>），不是能直接运行的版本。源码要装 Node.js 才能跑，普通使用请回到<a href="#download">下载区</a>，用夸克网盘或 GitHub 按钮下载 <code>SMUCL-x.x.x-portable.zip</code>。</p>
         </details>
 
         <details>
