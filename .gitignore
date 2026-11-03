@@ -29,6 +29,13 @@ build/*.jpg
 # 1.5.0 宣传片产物（视频与静帧太大，不入库）
 build/promo2/
 
+# 2.0 宣传片产物（45 MB，不入库；生成脚本照常入库）
+build/promo3/
+
+# 发布流程的临时响应文件
+build/relid.txt
+build/up*.json
+
 # 已发布应用的标记文件（WorkBuddy 内部产物）
 .wbapp_*.genie
 
