@@ -9,7 +9,7 @@
 [![Electron](https://img.shields.io/badge/Electron-45-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6?logo=windows&logoColor=white)](#)
 [![License](https://img.shields.io/badge/license-MIT-3DA639)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.0.0-3b7dd8](#)
+[![Version](https://img.shields.io/badge/version-2.0.1-3b7dd8](#)
 [![Release](https://img.shields.io/github/v/release/Survaetr/SMUCL?label=release&color=3DA639)](https://github.com/Survaetr/SMUCL/releases)
 
 </div>
@@ -19,7 +19,7 @@
 > 仓库页绿色的 `Code → Download ZIP` 拿到的是源码，解压后只有 `main.js`、`core/`、`build/` 这些文件，
 > **没有 `SMUCL.exe`**，要装 Node.js 才能跑。
 >
-> 免安装版直链：[**SMUCL-2.0.0-portable.zip**](https://github.com/Survaetr/SMUCL/releases/download/v2.0.0/SMUCL-2.0.0-portable.zip)（142 MB，解压后双击 `SMUCL.exe`）
+> 免安装版直链：[**SMUCL-2.0.1-portable.zip**](https://github.com/Survaetr/SMUCL/releases/download/v2.0.1/SMUCL-2.0.1-portable.zip)（142 MB，解压后双击 `SMUCL.exe`）
 > ·
 > 国内网盘：[夸克网盘](https://pan.quark.cn/s/a054da815452)
 > ·
@@ -161,6 +161,14 @@ SMUCL/
 https://survaetr.github.io/SMUCL/ （GitHub Pages，内容放在 `gh-pages` 分支根目录）。
 
 ## 更新记录
+
+**v2.0.1**（2026-11-03）自动更新修复
+
+- 修了「检查更新一直失败」：检查更新改走 Electron 的 `net.request`，能跟随系统代理、使用系统证书库。
+  之前用的 Node `fetch` 在「代理做 TLS 中间人」的网络里会以 `UNABLE_TO_VERIFY_LEAF_SIGNATURE` 立即失败
+- 失败原因如实区分网络不可达 / 接口限流 / 确实没有发布记录，不再一律显示成「仓库还没有发布记录」
+- 连续失败按 2 的幂退避（最长 4 小时）；右下角同类提示只保留一条，最多同时 4 条
+- 下载更新包同样支持走代理，主通道连不上时自动换直连再试一次
 
 **v2.0.0**（2026-11-03）动效与配色
 
