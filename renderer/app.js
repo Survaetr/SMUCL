@@ -254,15 +254,40 @@ function fmtTime(ts) {
   return `${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+/**
+ * 通知。
+ * 同文案在显示期内只保留一条（重复触发只刷新计时），并限制同时最多 4 条——
+ * 否则网络反复失败、用户连点按钮时，右下角会堆成一整列一样的提示。
+ */
 function toast(message, type = 'info') {
+  const box = $('#toasts');
+  if (!box) return;
+  const key = `${type}|${message}`;
+
+  const alive = (el) => el && !el.classList.contains('hide');
+  const same = [...box.children].find((el) => el.dataset.key === key && alive(el));
+  const arm = (el) => {
+    clearTimeout(Number(el.dataset.timer) || 0);
+    const t = setTimeout(() => {
+      el.classList.add('hide');
+      setTimeout(() => el.remove(), 320);
+    }, 3200);
+    el.dataset.timer = String(t);
+  };
+
+  if (same) {
+    arm(same);
+    return;
+  }
+
   const el = document.createElement('div');
   el.className = `toast ${type}`;
+  el.dataset.key = key;
   el.textContent = message;
-  $('#toasts').appendChild(el);
-  setTimeout(() => {
-    el.classList.add('hide');
-    setTimeout(() => el.remove(), 320);
-  }, 3200);
+  box.appendChild(el);
+  arm(el);
+
+  while (box.children.length > 4) box.firstElementChild.remove();
 }
 
 function debounce(fn, wait = 200) {
@@ -3095,10 +3120,18 @@ async function boot() {
     }, 3000);
   }
 
-  // 启动后自动检查自身更新，并在运行期间每 30 分钟复查一次
+  // 启动后自动检查自身更新，之后定时复查。
+  // 连续失败时按 2 的幂退避（最长 4 小时），避免断网或代理故障期间反复打接口
   if (S.settings.autoUpdateCheck !== false) {
-    setTimeout(() => checkUpdate(true), 2500);
-    setInterval(() => checkUpdate(true), 30 * 60 * 1000);
+    let failStreak = 0;
+    const tick = async () => {
+      const r = await checkUpdate(true);
+      failStreak = r && r.ok ? 0 : failStreak + 1;
+      const base = 30 * 60 * 1000;
+      const wait = failStreak ? Math.min(base * 2 ** Math.min(failStreak, 3), 4 * 60 * 60 * 1000) : base;
+      setTimeout(tick, wait);
+    };
+    setTimeout(tick, 2500);
   }
 
   if (!S.installed.length) {

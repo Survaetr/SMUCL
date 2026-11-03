@@ -3,12 +3,21 @@
  * 更新器
  * 只替换应用代码（resources/app，约 1 MB），不重下 Electron 运行时，
  * 因此可以直接把更新包挂在 GitHub Release 上（远小于 100 MB 限制）。
+ *
+ * 网络层（2026-11-03 重写）：
+ * 原先用 Node 的全局 fetch。在「系统代理做 TLS 中间人」的环境里，它会以
+ * UNABLE_TO_VERIFY_LEAF_SIGNATURE 立即失败，而且 fetch 不读系统代理设置，
+ * 表现为「检查更新永远失败」，还会被误报成「仓库还没有发布记录」。
+ * 现在主通道是 Electron 的 net.request（Chromium 网络栈，自动跟随系统代理、
+ * 用系统证书库）；只有 net 层连不上时才降级到 https 直连兜底，兜底通道放宽
+ * 证书校验——下载物是否可信由后面的 SHA-256 校验负责，不依赖 TLS。
  */
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const https = require('https');
 const crypto = require('crypto');
-const { app } = require('electron');
+const { app, net } = require('electron');
 const AdmZip = require('adm-zip');
 
 const REPO = 'Survaetr/SMUCL';
@@ -34,19 +43,111 @@ function compareVersion(a, b) {
   return 0;
 }
 
-async function getJson(url) {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), TIMEOUT);
-  try {
-    const res = await fetch(url, {
-      headers: { 'User-Agent': UA, Accept: 'application/vnd.github+json' },
-      signal: ctrl.signal,
+/* --------------------------------------------------------------- 网络层 */
+
+/** 主通道：Electron net，自动走系统代理与系统证书库 */
+function netGet(url, headers = {}, timeout = TIMEOUT) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let timer = null;
+    const finish = (fn, v) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      fn(v);
+    };
+
+    let req;
+    try {
+      req = net.request({ url, method: 'GET', redirect: 'follow' });
+    } catch (e) {
+      return finish(reject, e);
+    }
+
+    timer = setTimeout(() => {
+      try {
+        req.abort();
+      } catch {
+        /* 忽略 */
+      }
+      finish(reject, new Error('请求超时'));
+    }, timeout);
+
+    req.setHeader('User-Agent', UA);
+    for (const [k, v] of Object.entries(headers)) req.setHeader(k, v);
+
+    req.on('response', (res) => {
+      let body = '';
+      res.on('data', (c) => (body += c.toString('utf8')));
+      res.on('end', () => finish(resolve, { status: res.statusCode, body }));
+      res.on('error', (e) => finish(reject, e));
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
-  } finally {
-    clearTimeout(timer);
+    req.on('error', (e) => finish(reject, e));
+    req.end();
+  });
+}
+
+/** 兜底通道：https 直连，放宽证书校验（只用来取 JSON，可信内容不经过这里） */
+function rawGet(url, headers = {}, timeout = TIMEOUT) {
+  return new Promise((resolve, reject) => {
+    const req = https.get(
+      url,
+      { headers: { 'User-Agent': UA, ...headers }, rejectUnauthorized: false, timeout },
+      (res) => {
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', (c) => (body += c));
+        res.on('end', () => resolve({ status: res.statusCode, body }));
+      }
+    );
+    req.on('timeout', () => req.destroy(new Error('请求超时')));
+    req.on('error', reject);
+  });
+}
+
+/** 取 JSON：net 优先，网络层失败再兜底；HTTP 错误码原样抛出，便于分类 */
+async function getJson(url) {
+  const headers = { Accept: 'application/vnd.github+json' };
+  let res;
+  try {
+    res = await netGet(url, headers);
+  } catch (netErr) {
+    try {
+      res = await rawGet(url, headers);
+    } catch {
+      const e = new Error(netErr.message || '网络不可达');
+      e.kind = 'network';
+      throw e;
+    }
   }
+  if (res.status < 200 || res.status >= 300) {
+    const e = new Error(`HTTP ${res.status}`);
+    e.status = res.status;
+    throw e;
+  }
+  try {
+    return JSON.parse(res.body);
+  } catch {
+    const e = new Error('返回内容不是有效 JSON（可能被网络中间页替换）');
+    e.kind = 'network';
+    throw e;
+  }
+}
+
+/** 把失败原因翻成用户看得懂、并且能指导下一步的话 */
+function explain(err) {
+  if (!err) return '检查更新失败';
+  if (err.kind === 'network') {
+    const msg = String(err.message || '');
+    if (/超时/.test(msg)) return '连接 GitHub 超时，请检查网络或代理后重试';
+    return `无法连接 GitHub（${msg || '网络不可达'}）`;
+  }
+  if (err.status === 403 || err.status === 429) {
+    return 'GitHub 接口暂时受限（匿名请求每小时 60 次），请稍后重试';
+  }
+  if (err.status === 404) return 'GitHub 上找不到这个仓库或发布记录';
+  if (err.status) return `GitHub 返回 HTTP ${err.status}`;
+  return `检查更新失败：${err.message || '未知错误'}`;
 }
 
 function pickAsset(assets) {
@@ -65,51 +166,73 @@ function pickAsset(assets) {
  */
 async function check() {
   const current = app.getVersion();
-  try {
-    let release = null;
-    try {
-      release = await getJson(`${API}/releases/latest`);
-    } catch {
-      const list = await getJson(`${API}/releases`).catch(() => []);
-      release = Array.isArray(list) ? list.find((r) => !r.draft && !r.prerelease) || list.find((r) => !r.draft) : null;
-    }
 
-    if (!release) {
-      const tags = await getJson(`${API}/tags`).catch(() => []);
-      if (!Array.isArray(tags) || !tags.length) {
-        return { ok: false, error: '仓库还没有发布记录' };
+  // 1) 最新 Release。404 只代表「没有 Release」，不代表网络故障，可以退到列表接口
+  let release = null;
+  let err = null;
+  try {
+    release = await getJson(`${API}/releases/latest`);
+  } catch (e) {
+    err = e;
+    if (e.status === 404) {
+      try {
+        const list = await getJson(`${API}/releases`);
+        release = Array.isArray(list)
+          ? list.find((r) => !r.draft && !r.prerelease) || list.find((r) => !r.draft) || null
+          : null;
+        err = null;
+      } catch (e2) {
+        err = e2;
       }
-      const latest = String(tags[0].name || '').replace(/^v/i, '');
+    } else {
+      // 网络失败或限流：换接口也救不回来，如实返回
+      return { ok: false, error: explain(e), current };
+    }
+  }
+
+  // 2) 一个 Release 都没有时，才去看 tag（有些项目只打 tag 不发 Release）
+  if (!release) {
+    let tags = null;
+    try {
+      tags = await getJson(`${API}/tags`);
+    } catch (e) {
+      return { ok: false, error: explain(e), current };
+    }
+    if (!Array.isArray(tags) || !tags.length) {
       return {
-        ok: true,
-        source: 'tag',
+        ok: false,
+        error: err ? explain(err) : 'GitHub 上还没有发布记录（既没有 Release 也没有 tag）',
         current,
-        latest,
-        hasUpdate: compareVersion(latest, current) > 0,
-        notes: '',
-        url: `https://github.com/${REPO}/releases`,
-        asset: null,
       };
     }
-
-    const latest = String(release.tag_name || release.name || '').replace(/^v/i, '');
-    const asset = pickAsset(release.assets);
+    const latest = String(tags[0].name || '').replace(/^v/i, '');
     return {
       ok: true,
-      source: 'release',
+      source: 'tag',
       current,
       latest,
       hasUpdate: compareVersion(latest, current) > 0,
-      notes: release.body || '',
-      name: release.name || `v${latest}`,
-      published: release.published_at || null,
-      url: release.html_url,
-      asset,
-      expect: asset ? expectedOf(asset, release.body) : null,
+      notes: '',
+      url: `https://github.com/${REPO}/releases`,
+      asset: null,
     };
-  } catch (e) {
-    return { ok: false, error: `无法连接 GitHub：${e.message}` };
   }
+
+  const latest = String(release.tag_name || release.name || '').replace(/^v/i, '');
+  const asset = pickAsset(release.assets);
+  return {
+    ok: true,
+    source: 'release',
+    current,
+    latest,
+    hasUpdate: compareVersion(latest, current) > 0,
+    notes: release.body || '',
+    name: release.name || `v${latest}`,
+    published: release.published_at || null,
+    url: release.html_url,
+    asset,
+    expect: asset ? expectedOf(asset, release.body) : null,
+  };
 }
 
 /**
@@ -167,37 +290,105 @@ function copyTree(from, to) {
   }
 }
 
+/** 下载：仍然 net 优先，主通道连不上时退回放宽证书的 https 直连 */
 function downloadFile(url, dest, onProgress) {
-  return new Promise(async (resolve, reject) => {
-    try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 120000);
-      const res = await fetch(url, {
-        headers: { 'User-Agent': UA, Accept: 'application/octet-stream' },
-        redirect: 'follow',
-        signal: ctrl.signal,
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let out = null;
+    let active = null;
 
-      const total = Number(res.headers.get('content-length') || 0);
-      const out = fs.createWriteStream(dest);
-      let received = 0;
-
-      const reader = res.body.getReader();
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        received += value.length;
-        out.write(Buffer.from(value));
-        if (onProgress) onProgress(received, total);
+    const dropStream = () => {
+      if (!out) return;
+      try {
+        out.destroy();
+      } catch {
+        /* 忽略 */
       }
-      out.end(() => {
-        clearTimeout(timer);
-        resolve({ bytes: received, total });
-      });
-    } catch (e) {
-      reject(e);
-    }
+      out = null;
+    };
+    const finish = (fn, v) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn(v);
+    };
+
+    const timer = setTimeout(() => {
+      try {
+        active && (active.abort || active.destroy).call(active);
+      } catch {
+        /* 忽略 */
+      }
+      dropStream();
+      finish(reject, new Error('下载超时'));
+    }, 180000);
+
+    const attempt = (useRaw) => {
+      out = fs.createWriteStream(dest);
+
+      const onResponse = (res, status) => {
+        if (status < 200 || status >= 300) {
+          const e = new Error(`下载失败：HTTP ${status}`);
+          e.status = status;
+          dropStream();
+          return finish(reject, e);
+        }
+        const rawLen = res.headers['content-length'];
+        const total = Number(Array.isArray(rawLen) ? rawLen[0] : rawLen) || 0;
+        let received = 0;
+        res.on('data', (chunk) => {
+          received += chunk.length;
+          if (out) out.write(chunk);
+          if (onProgress) onProgress(received, total);
+        });
+        res.on('end', () => {
+          if (!out) return finish(reject, new Error('下载中断'));
+          const stream = out;
+          out = null;
+          stream.end(() => finish(resolve, { bytes: received, total }));
+        });
+        res.on('error', (e) => {
+          dropStream();
+          finish(reject, e);
+        });
+      };
+
+      const onError = (e) => {
+        dropStream();
+        if (!useRaw && !settled) {
+          try {
+            fs.rmSync(dest, { force: true });
+          } catch {
+            /* 忽略 */
+          }
+          return attempt(true);
+        }
+        finish(reject, e);
+      };
+
+      if (useRaw) {
+        active = https.get(
+          url,
+          {
+            headers: { 'User-Agent': UA, Accept: 'application/octet-stream' },
+            rejectUnauthorized: false,
+            timeout: 120000,
+          },
+          (res) => onResponse(res, res.statusCode)
+        );
+        active.on('timeout', () => active.destroy(new Error('下载超时')));
+        active.on('error', onError);
+      } else {
+        active = net.request({ url, method: 'GET', redirect: 'follow' });
+        active.setHeader('User-Agent', UA);
+        active.setHeader('Accept', 'application/octet-stream');
+        active.on('response', (res) => onResponse(res, res.statusCode));
+        active.on('error', onError);
+        active.end();
+      }
+    };
+
+    attempt(false);
   });
 }
 
@@ -278,4 +469,4 @@ async function install(asset, onProgress, expect) {
   return { target, version: app.getVersion() };
 }
 
-module.exports = { check, install, compareVersion, REPO, expectedOf, sha256File, isZip };
+module.exports = { check, install, compareVersion, REPO, expectedOf, sha256File, isZip, explain };
