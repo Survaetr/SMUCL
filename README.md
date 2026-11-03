@@ -9,10 +9,23 @@
 [![Electron](https://img.shields.io/badge/Electron-45-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6?logo=windows&logoColor=white)](#)
 [![License](https://img.shields.io/badge/license-MIT-3DA639)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.9.3-3b7dd8](#)
+[![Version](https://img.shields.io/badge/version-2.0.0-3b7dd8](#)
 [![Release](https://img.shields.io/github/v/release/Survaetr/SMUCL?label=release&color=3DA639)](https://github.com/Survaetr/SMUCL/releases)
 
 </div>
+
+> [!IMPORTANT]
+> **想直接用，请别下这个仓库的 ZIP。**
+> 仓库页绿色的 `Code → Download ZIP` 拿到的是源码，解压后只有 `main.js`、`core/`、`build/` 这些文件，
+> **没有 `SMUCL.exe`**，要装 Node.js 才能跑。
+>
+> 免安装版直链：[**SMUCL-2.0.0-portable.zip**](https://github.com/Survaetr/SMUCL/releases/download/v2.0.0/SMUCL-2.0.0-portable.zip)（142 MB，解压后双击 `SMUCL.exe`）
+> ·
+> 国内网盘：[夸克网盘](https://pan.quark.cn/s/a054da815452)
+> ·
+> 介绍页：[survaetr.github.io/SMUCL](https://survaetr.github.io/SMUCL/)
+>
+> Release 里的 `app-*.zip` 只有 0.36 MB，是启动器自更新用的增量包，同样不能单独运行。
 
 界面综合了两款启动器的信息架构与交互习惯：**SJMC Launcher** 的分区清晰、以版本为中心的管理方式，
 以及常见国产启动器「一屏启动」的首页布局；视觉上做了 Minecraft 化处理——校徽被重构为像素图标，
@@ -33,11 +46,13 @@
 | 下载游戏 | 拉取 Mojang 版本清单，按正式版 / 快照 / 旧版筛选，逐行进度条安装；中断的实例显示「修复」；可在线安装 Fabric / Quilt / Forge / NeoForge 加载器（底座缺失自动补装） |
 | 整合包 | 从 Modrinth / CurseForge 搜索并一键安装，自动补原版与加载器，建版本隔离实例；支持导入 / 导出本地 zip |
 | 资源下载 | 从 Modrinth 搜索模组 / 光影 / 材质包，按实例的版本与加载器筛选，自动补齐依赖后装入对应目录 |
-| 账号 | 微软正版登录（设备码流程），**不需要注册 Azure 应用**，令牌用系统凭据加密保存并按通道自动续期；账号卡与侧栏显示皮肤头像（取 Mojang 接口、8×8 头部裁剪、含帽子层、缓存 6 小时）；离线账户照旧可用 |
+| 账号 | 微软正版登录（设备码流程），**不需要注册 Azure 应用**，令牌用系统凭据加密保存并按通道自动续期；账号卡与侧栏显示皮肤头像（取 Mojang 接口、8×8 头部裁剪、含帽子层、缓存 6 小时）；**离线账户可导入本地皮肤**（64×64 / 64×32 / 128 高清，设置页有纸娃娃预览与移除），不再是名字首字母 |
 | 设置 | Java 运行时扫描与指定、内存、JVM 参数、全屏、显卡偏好（写入 Windows 图形设置）、下载源、并发数、游戏目录管理、自动检查新版本 |
 | 主题 | 深色 / 浅色 / 跟随系统，标题栏右上角一键切换 |
+| 主题色 | 固定校徽蓝，或从背景图里取主色实时生成整套配色（按钮、选中态、高光、横幅光晕）；纯灰图自动回落到校徽蓝 |
+| 动效 | 页面退场淡出 + 内容分级浮起、按压回弹、模态弹性入场、进度条缓动插值；跟随系统「减少动态效果」 |
 | 背景自定义 | 导入本地图片作为背景，支持铺满 / 完整 / 拉伸、四种蒙版（柔和 / 上隐 / 下隐 / 暗角）、图片不透明度、模糊、压暗；卡片与侧栏可按「界面不透明度」玻璃化。图片复制到 userData/wallpapers，经自有协议 `smucl-wall://` 读取 |
-| 在线更新 | 检查本仓库 Release，下载 `app-<version>.zip` 增量更新包并自动重启；升级后首次启动弹出更新日志 |
+| 在线更新 | 检查本仓库 Release，下载 `app-<version>.zip` 增量更新包并自动重启；下载后校验体积、zip 结构与 SHA-256，坏包不会覆盖安装；只认主进程检查到的资产，界面无法指定下载地址；升级后首次启动弹出更新日志 |
 | 运行日志 | 底部抽屉，实时显示游戏 stdout / stderr，错误行高亮 |
 
 ### 截图
@@ -146,6 +161,15 @@ SMUCL/
 https://survaetr.github.io/SMUCL/ （GitHub Pages，内容放在 `gh-pages` 分支根目录）。
 
 ## 更新记录
+
+**v2.0.0**（2026-11-03）动效与配色
+
+- 整套界面动效重做：切换页面先淡出再淡入，内容块分批浮起，节奏统一到同一套缓动曲线
+- 按钮、分段控件、卡片加了按下回弹与悬停位移；模态与提示改成弹性入场；进度条改为缓动插值
+- 新增「壁纸取色」主题：从背景图提取主色，生成按钮、选中态与高光的配色，可在设置 → 外观切换
+- 界面里原本写死的品牌色改为由 CSS 变量派生，取色后导航选中态、横幅光晕、分段控件一起变
+- 更新包新增三道校验：体积、zip 结构、SHA-256 摘要；安装只用主进程检查到的那一份结果
+- 适配系统「减少动态效果」，开启时所有动画退化为瞬间完成
 
 **v1.9.3**
 

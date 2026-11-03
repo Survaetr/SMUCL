@@ -141,6 +141,7 @@ const EDITABLE_SETTINGS = new Set([
   'autoCheck',
   'autoUpdateCheck',
   'theme',
+  'accent',
   'wallpaper',
   'gpuHighPerf',
   'saveGroup',
@@ -248,6 +249,10 @@ function sanitizeSettingsPatch(patch) {
       case 'theme':
         if (!['auto', 'dark', 'light'].includes(value)) throw new Error('主题无效');
         out.theme = value;
+        break;
+      case 'accent':
+        if (!['brand', 'wallpaper'].includes(value)) throw new Error('主题色模式无效');
+        out.accent = value;
         break;
       case 'wallpaper': {
         if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('背景设置无效');
@@ -375,6 +380,27 @@ function createWindow() {
       const delay = view === 'download' ? 12000 : view === 'saves' ? 9000 : 3000;
       setTimeout(async () => {
         try {
+          // view=all：逐个页面截一张，用于宣传素材
+          if (view === 'all') {
+            const views = ['home', 'versions', 'download', 'packs', 'content', 'saves', 'settings'];
+            const outDir = path.join(__dirname, 'build', 'shots200');
+            fs.mkdirSync(outDir, { recursive: true });
+            if (process.env.SMUCL_SHOT_JS) {
+              await win.webContents.executeJavaScript(process.env.SMUCL_SHOT_JS);
+              await new Promise((r) => setTimeout(r, 2200));
+            }
+            for (const v of views) {
+              await win.webContents.executeJavaScript(
+                `document.querySelector('[data-view="${v}"]')?.click(); true`
+              );
+              await new Promise((r) => setTimeout(r, v === 'saves' ? 5200 : 2600));
+              const shot = await win.webContents.capturePage();
+              fs.writeFileSync(path.join(outDir, `${v}.png`), shot.toPNG());
+              console.log('[shot] saved', v);
+            }
+            app.quit();
+            return;
+          }
           if (view) {
             await win.webContents.executeJavaScript(
               `document.querySelector('[data-view="${view}"]')?.click(); true`
@@ -919,14 +945,52 @@ function registerIpc() {
   });
 
   // 正版账号的皮肤头像：返回裁好的 8×8「脸 + 帽子层」两张 data URL
-  handle('account:skin', async (_e, { uuid, force } = {}) => {
-    if (!skinLib.isUuid(uuid)) return { ok: false, error: '账号 UUID 不合法' };
+  // 离线账户没有 UUID，走本地导入的皮肤；正版取不到时也回退到本地那张，避免只剩字母
+  handle('account:skin', async (_e, { uuid, name, force } = {}) => {
+    if (skinLib.isUuid(uuid)) {
+      try {
+        const face = await skinLib.face(uuid, { force: Boolean(force) });
+        return { ok: true, data: { ...face, source: 'mojang' } };
+      } catch (e) {
+        const local = name ? skinLib.localSkin(name) : null;
+        if (local) return { ok: true, data: { ...local.face, source: 'local' } };
+        return { ok: false, error: e.message };
+      }
+    }
+    // 离线账户
+    const local = name ? skinLib.localSkin(name) : null;
+    if (!local) return { ok: false, error: '这个离线账户还没有导入皮肤' };
+    return { ok: true, data: { ...local.face, source: 'local' } };
+  });
+
+  // 离线皮肤的完整预览数据（脸 + 纸娃娃切片），页面加载时取一次
+  handle('skin:local', async (_e, { name } = {}) => {
+    const local = name ? skinLib.localSkin(name) : null;
+    if (!local) return { ok: true, data: null };
+    return { ok: true, data: { face: local.face, parts: local.parts } };
+  });
+
+  // 导入：弹系统文件框，选一张 PNG，校验后按玩家名存下来
+  handle('skin:import', async (_e, { name } = {}) => {
+    const who = String(name || '').trim();
+    if (!who) return { ok: false, error: '请先填写离线账户名' };
+    const res = await dialog.showOpenDialog(win, {
+      title: '选择皮肤图片（64×64 或 64×32 的 PNG）',
+      filters: [{ name: '皮肤图片', extensions: ['png'] }],
+      properties: ['openFile'],
+    });
+    if (res.canceled || !res.filePaths.length) return { ok: false, error: '已取消', data: { canceled: true } };
     try {
-      const face = await skinLib.face(uuid, { force: Boolean(force) });
-      return { ok: true, data: face };
+      const r = skinLib.importLocal(who, res.filePaths[0]);
+      return { ok: true, data: { face: r.face, parts: r.parts } };
     } catch (e) {
       return { ok: false, error: e.message };
     }
+  });
+
+  handle('skin:clear', async (_e, { name } = {}) => {
+    const removed = skinLib.clearLocal(name);
+    return { ok: true, data: { removed } };
   });
 
   // ---------------- 启动 ----------------
@@ -1155,9 +1219,22 @@ function registerIpc() {
     return { ok: true, data: { dir } };
   });
 
+  // 壁纸取色：只接受壁纸目录里存在的文件名，避免变成任意文件读取接口
+  handle('wallpaper:palette', async (_e, { image } = {}) => {
+    const name = typeof image === 'string' ? image : '';
+    if (!wallpaperLib.isManaged(name) || !wallpaperLib.exists(name)) {
+      return { ok: true, data: null };
+    }
+    return { ok: true, data: wallpaperLib.theme(name) };
+  });
+
   // ---------------- 应用自身的更新 ----------------
+  // 只认主进程自己检查出来的那一份结果，渲染层无从指定下载地址
+  let lastCheck = null;
+
   handle('update:check', async (_e, { silent = false } = {}) => {
     const r = await updater.check();
+    lastCheck = r.ok ? r : null;
     if (r.ok && r.hasUpdate && win && !win.isDestroyed()) {
       win.webContents.send('update:available', r);
     } else if (!r.ok && !silent && win && !win.isDestroyed()) {
@@ -1167,14 +1244,15 @@ function registerIpc() {
   });
 
   // S3 + S4：不接受渲染进程传来的 asset，安装的永远是 check() 记录、并已校验 SHA256 的那一份
-  handle('update:install', async (_e, { asset } = {}) => {
+  handle('update:install', async () => {
+    if (!lastCheck || !lastCheck.asset) throw new Error('没有待安装的更新，请先检查更新');
     if (win && !win.isDestroyed()) win.webContents.send('update:progress', { stage: 'download', percent: 0 });
-    await updater.install(asset, (received, total) => {
+    await updater.install(lastCheck.asset, (received, total) => {
       const percent = total ? Math.min(99, Math.round((received / total) * 100)) : 0;
       if (win && !win.isDestroyed()) {
         win.webContents.send('update:progress', { stage: 'download', percent, received, total });
       }
-    });
+    }, lastCheck.expect);
     if (win && !win.isDestroyed()) win.webContents.send('update:progress', { stage: 'done', percent: 100 });
     settingsLib.save({ lastSeenVersion: '', pendingUpdate: true });
     setTimeout(() => {

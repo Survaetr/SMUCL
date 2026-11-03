@@ -132,27 +132,47 @@ async function download(uuid) {
 
 /** 8×8 头部（含帽子层）裁成两张小图，压成 data URL */
 function facesOf(buf) {
+  const parts = partsOf(buf);
+  return { base: parts.head, hat: parts.hat };
+}
+
+/**
+ * 把一张皮肤贴图切成界面要用的几块。
+ *
+ * 为什么不让渲染层用 background-size 百分比自己算：
+ *   老皮肤 64×32、新皮肤 64×64、高清皮肤 128×128，行高算法各不相同，
+ *   用 CSS 百分比定位必然在某一代格式上错位。这里按 width/64 算好比例再裁，
+ *   渲染层拿到的永远是 8×8 / 8×12 这种逻辑块，只管等比放大。
+ *
+ * 只切「正面」用到的部分：head / hat / body / arm / leg。
+ * 旧版 64×32 贴图里没有左手左腿，渲染层把右臂右腿镜像一份即可。
+ */
+function partsOf(buf) {
   const img = nativeImage.createFromBuffer(buf);
   if (img.isEmpty()) throw new Error('皮肤图片无法解析');
-  const { width } = img.getSize();
-  if (!width || width < 64) throw new Error('皮肤尺寸异常');
+  const { width, height } = img.getSize();
+  if (!width || width < 64 || width % 64 !== 0) throw new Error('皮肤宽度必须是 64 的倍数（如 64、128）');
 
-  // 64 宽的贴图是基准；高清皮肤（128 等）按比例放大坐标
   const k = width / 64;
-  const box = (x, y) => ({
-    x: Math.round(x * k),
-    y: Math.round(y * k),
-    width: Math.round(8 * k),
-    height: Math.round(8 * k),
-  });
-  const toUrl = (b) => `data:image/png;base64,${img.crop(b).toPNG().toString('base64')}`;
+  const h = Math.round(height / k); // 归一到 64 宽基准后的高度
+  if (h !== 64 && h !== 32) throw new Error('皮肤高度必须是 64 或 32（按 64 宽基准计算）');
+
+  const crop = (x, y, w, hh) =>
+    `data:image/png;base64,${img
+      .crop({ x: Math.round(x * k), y: Math.round(y * k), width: Math.round(w * k), height: Math.round(hh * k) })
+      .toPNG()
+      .toString('base64')}`;
 
   return {
-    // 头正面：8,8；帽子/发型叠加层：40,8（老皮肤 64×32 也在这个位置）
-    base: toUrl(box(8, 8)),
-    hat: toUrl(box(40, 8)),
+    modern: h === 64,
+    head: crop(8, 8, 8, 8),
+    hat: crop(40, 8, 8, 8),
+    body: crop(20, 20, 8, 12),
+    arm: crop(44, 20, 4, 12),
+    leg: crop(4, 20, 4, 12),
   };
 }
+
 
 /**
  * 取某个账号的脸。
@@ -203,4 +223,95 @@ function clear(uuid) {
   }
 }
 
-module.exports = { face, clear, isUuid, normalize, root, ensureDir, cachePath };
+/* ------------------------------------------------------------ 离线本地皮肤 */
+/**
+ * 离线账户拿不到官方贴图，只能让用户自己导入一张 PNG。
+ *
+ * 存法：userData/skins/local/<key>.png
+ * key 由玩家名小写清洗而来——离线账户没有 UUID，名字就是唯一标识。
+ * 因此改了玩家名之后旧皮肤不会自动跟过去，界面上有相应提示。
+ */
+
+function localDir() {
+  const dir = path.join(root(), 'local');
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+/** 玩家名 → 安全的文件名片段；非法/空白名返回空串 */
+function keyOf(name) {
+  const s = String(name || '').trim().toLowerCase();
+  if (!s) return '';
+  return s
+    .replace(/[^a-z0-9_.-]/g, '_') // 路径分隔符、盘符、Unicode 全部换掉
+    .replace(/\.{2,}/g, '.') // 干掉连续的 ..，避免看着像目录穿越
+    .replace(/^[._]+|[._]+$/g, '') // 首尾的点和下划线没有意义
+    .slice(0, 48) || '';
+}
+
+function localPathOf(name) {
+  const key = keyOf(name);
+  return key ? path.join(localDir(), `${key}.png`) : '';
+}
+
+/** 导入一张本地皮肤；校验 PNG 头、体积与尺寸，落盘用临时文件避免写坏 */
+function importLocal(name, srcFile) {
+  const dest = localPathOf(name);
+  if (!dest) throw new Error('玩家名为空，无法保存皮肤');
+
+  const st = fs.statSync(srcFile);
+  if (!st.isFile()) throw new Error('不是文件');
+  if (st.size > MAX_BYTES) throw new Error('皮肤文件超过 1 MB');
+
+  const buf = fs.readFileSync(srcFile);
+  if (!isPng(buf)) throw new Error('这不是有效的 PNG 图片');
+  const parts = partsOf(buf); // 尺寸不对会在这里抛错
+
+  const tmp = `${dest}.part`;
+  fs.writeFileSync(tmp, buf);
+  fs.renameSync(tmp, dest);
+  return { face: { base: parts.head, hat: parts.hat }, parts };
+}
+
+/** 读本地皮肤；没有就返回 null（不抛错，调用方据此回退到首字母） */
+function localSkin(name) {
+  const file = localPathOf(name);
+  if (!file || !fs.existsSync(file)) return null;
+  try {
+    const buf = fs.readFileSync(file);
+    if (!isPng(buf)) {
+      fs.rmSync(file, { force: true });
+      return null;
+    }
+    const parts = partsOf(buf);
+    return { face: { base: parts.head, hat: parts.hat }, parts };
+  } catch {
+    return null;
+  }
+}
+
+function clearLocal(name) {
+  const file = localPathOf(name);
+  if (!file || !fs.existsSync(file)) return false;
+  try {
+    fs.rmSync(file, { force: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+module.exports = {
+  face,
+  clear,
+  isUuid,
+  normalize,
+  root,
+  ensureDir,
+  cachePath,
+  partsOf,
+  importLocal,
+  localSkin,
+  clearLocal,
+  keyOf,
+};

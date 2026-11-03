@@ -49,10 +49,49 @@ function applyTheme(pref) {
   if (icon) icon.innerHTML = theme === 'dark' ? THEME_ICON.sun : THEME_ICON.moon;
   const btn = $('#btnTheme');
   if (btn) btn.title = theme === 'dark' ? '切换到浅色主题' : '切换到深色主题';
+  if (S.settings) applyAccent();
+}
+
+
+/* ---------------------------------------------------------------- 主题色 */
+/* 跟随壁纸取色：色相由主进程从图片里算好，这里只决定深色还是浅色那一套。
+   取不到主色（纯灰图、纯黑白图）时回落到校徽蓝，不留下「颜色乱跳」的观感。 */
+const ACCENT_VARS = ['--brand', '--brand-2', '--brand-soft'];
+let accentCache = { image: '', data: null };
+let accentSeq = 0;
+
+async function applyAccent() {
+  const s = S.settings || {};
+  const wp = s.wallpaper || {};
+  const root = document.documentElement;
+  const want = s.accent === 'wallpaper' && wp.enabled && wp.image;
+  if (!want) {
+    ACCENT_VARS.forEach((v) => root.style.removeProperty(v));
+    return;
+  }
+  const seq = ++accentSeq;
+  if (accentCache.image !== wp.image) {
+    const r = await api.wallpaperPalette(wp.image);
+    if (seq !== accentSeq) return; // 期间又换了图，丢弃这次结果
+    if (!r || !r.ok || !r.data) {
+      ACCENT_VARS.forEach((v) => root.style.removeProperty(v));
+      return;
+    }
+    accentCache = { image: wp.image, data: r.data };
+  }
+  const dark = resolveTheme(s.theme) === 'dark';
+  const p = accentCache.data[dark ? 'dark' : 'light'];
+  if (!p) return;
+  root.style.setProperty('--brand', p.base);
+  root.style.setProperty('--brand-2', p.base2);
+  root.style.setProperty('--brand-soft', p.soft);
 }
 
 darkQuery.addEventListener('change', () => {
-  if (S.settings && S.settings.theme === 'auto') applyTheme('auto');
+  if (S.settings && S.settings.theme === 'auto') {
+    applyTheme('auto');
+    applyAccent();
+  }
 });
 
 /* ---------------------------------------------------------------- 背景图 */
@@ -104,6 +143,7 @@ function applyWallpaper(wp) {
   root.style.setProperty('--wp-ui', `${Math.round((w.ui ?? 0.78) * 100)}%`);
   // 行内 background-image 与变量同源，切换图片时能立刻换掉旧图
   if (img) img.querySelector('.wp-img').style.backgroundImage = `url("${wallpaperUrl(w.image)}")`;
+  applyAccent();
 }
 
 /** 同步设置页里那一堆控件 */
@@ -399,18 +439,42 @@ function showChangelog(version) {
 
 /* ---------------------------------------------------------------- 视图 */
 let currentView = 'home';
+let viewSeq = 0;
+
+/* 退场 120ms → 入场 200ms + 子块分级升起。
+   旧视图只是淡出、仍在文档流里，新视图此时还是 display:none，
+   两者不会叠在一起，所以不需要做绝对定位。 */
 function switchView(name) {
+  const token = ++viewSeq;
   currentView = name;
   $$('.nav-item').forEach((b) => b.classList.toggle('active', b.dataset.view === name));
-  $$('.view').forEach((v) => v.classList.toggle('active', v.id === `view-${name}`));
-  $('.content').scrollTop = 0;
-  if (name === 'saves' && S.saves === null) loadSaves({ quiet: true });
-  if (name === 'packs' && !S.packHits.length) renderPackResults();
-  if (name === 'content') {
-    renderContentFilters();
-    if (!S.contentHits.length) renderContentResults();
+
+  const next = $(`#view-${name}`);
+  const prev = $$('.view').find((v) => v.classList.contains('active') && v !== next);
+
+  const enter = () => {
+    if (token !== viewSeq) return;
+    $$('.view').forEach((v) => {
+      if (v !== next) v.classList.remove('active', 'leaving');
+    });
+    next.classList.remove('leaving');
+    next.classList.add('active');
+    $('.content').scrollTop = 0;
+    if (name === 'saves' && S.saves === null) loadSaves({ quiet: true });
+    if (name === 'packs' && !S.packHits.length) renderPackResults();
+    if (name === 'content') {
+      renderContentFilters();
+      if (!S.contentHits.length) renderContentResults();
+    }
+    if (name === 'versions') refreshSizes();
+  };
+
+  if (prev) {
+    prev.classList.add('leaving');
+    setTimeout(enter, 110);
+  } else {
+    enter();
   }
-  if (name === 'versions') refreshSizes();
 }
 
 /* ---------------------------------------------------------------- 渲染 */
@@ -718,8 +782,8 @@ async function installLoader() {
 
 
 /* ---------------------------------------------------------------- 头像 */
-// 正版账号画皮肤脸，离线账号退回名字首字母。脸按 uuid 缓存在内存里，
-// 避免每次重渲染都走一次 IPC。
+// 正版账号画官方皮肤脸；离线账号画用户自己导入的那张（没有就退回名字首字母）。
+// 脸按「uuid 或 本地:玩家名」缓存在内存里，避免每次重渲染都走一次 IPC。
 const faceCache = new Map();
 
 function avatarEls() {
@@ -757,20 +821,212 @@ function applyFace(el, face) {
 
 async function paintSkin() {
   const a = S.account;
-  if (!a || !a.loggedIn || !a.uuid) {
+  const offlineName = (S.settings && S.settings.playerName) || '';
+
+  if (a && a.loggedIn && a.uuid) {
+    let face = faceCache.get(a.uuid);
+    if (!face) {
+      // 官方皮肤取不到时主进程会回退到本地那张，所以这里把玩家名一起带上
+      const r = await api.accountSkin(a.uuid, false, offlineName);
+      if (!r.ok) return; // 拿不到皮肤就保持首字母，不打扰用户
+      face = r.data;
+      faceCache.set(a.uuid, face);
+    }
+    // 等 IPC 期间可能换了账号，落到旧账号就不画
+    if (!S.account || S.account.uuid !== a.uuid) return;
+    avatarEls().forEach((el) => applyFace(el, face));
+    return;
+  }
+
+  // 离线账户：用本地导入的皮肤
+  if (!offlineName) {
     avatarEls().forEach(clearFace);
     return;
   }
-  let face = faceCache.get(a.uuid);
+  const key = `local:${offlineName.toLowerCase()}`;
+  let face = faceCache.get(key);
   if (!face) {
-    const r = await api.accountSkin(a.uuid);
-    if (!r.ok) return; // 拿不到皮肤就保持首字母，不打扰用户
-    face = r.data;
-    faceCache.set(a.uuid, face);
+    const r = await api.skinLocal(offlineName);
+    if (!r.ok || !r.data) {
+      avatarEls().forEach(clearFace);
+      return;
+    }
+    face = r.data.face;
+    faceCache.set(key, face);
   }
-  // 等 IPC 期间可能换了账号，落到旧账号就不画
-  if (!S.account || S.account.uuid !== a.uuid) return;
+  if (((S.settings && S.settings.playerName) || '') !== offlineName) return;
   avatarEls().forEach((el) => applyFace(el, face));
+}
+
+/* ---------------------------------------------------------------- 皮肤卡 */
+// 纸娃娃：每个部件都是主进程裁好的逻辑块，这里按固定倍率拼成一个人
+function buildDoll(parts) {
+  const doll = document.createElement('div');
+  doll.className = 'doll';
+
+  const head = document.createElement('div');
+  head.className = 'doll-head';
+  const face = document.createElement('img');
+  face.className = 'doll-p head';
+  face.src = parts.head;
+  face.alt = '';
+  head.appendChild(face);
+  if (parts.hat) {
+    const hat = document.createElement('img');
+    hat.className = 'doll-p hat';
+    hat.src = parts.hat;
+    hat.alt = '';
+    head.appendChild(hat);
+  }
+
+  const armRow = document.createElement('div');
+  armRow.className = 'doll-row';
+  const armL = document.createElement('img');
+  armL.className = 'doll-p arm flip'; // 旧版贴图没有左臂，镜像右臂即可
+  armL.src = parts.arm;
+  armL.alt = '';
+  const body = document.createElement('img');
+  body.className = 'doll-p body';
+  body.src = parts.body;
+  body.alt = '';
+  const armR = document.createElement('img');
+  armR.className = 'doll-p arm';
+  armR.src = parts.arm;
+  armR.alt = '';
+  armRow.append(armL, body, armR);
+
+  const legRow = document.createElement('div');
+  legRow.className = 'doll-row';
+  const legL = document.createElement('img');
+  legL.className = 'doll-p leg flip';
+  legL.src = parts.leg;
+  legL.alt = '';
+  const legR = document.createElement('img');
+  legR.className = 'doll-p leg';
+  legR.src = parts.leg;
+  legR.alt = '';
+  legRow.append(legL, legR);
+
+  doll.append(head, armRow, legRow);
+  return doll;
+}
+
+function setDoll(parts, emptyText) {
+  const box = $('#skinDoll');
+  if (!box) return;
+  box.textContent = '';
+  if (!parts) {
+    const span = document.createElement('span');
+    span.className = 'doll-empty';
+    span.textContent = emptyText || '未导入';
+    box.appendChild(span);
+    return;
+  }
+  box.appendChild(buildDoll(parts));
+}
+
+/** 刷新皮肤卡：正版展示官方头像，离线展示导入的纸娃娃 */
+async function renderSkinCard() {
+  const box = $('#skinDoll');
+  if (!box) return;
+  const a = S.account || {};
+  const name = (S.settings && S.settings.playerName) || '';
+  const chip = $('#skinModeChip');
+  const hint = $('#skinHint');
+  const note = $('#skinNote');
+  const btnImport = $('#btnSkinImport');
+  const btnClear = $('#btnSkinClear');
+
+  if (a.loggedIn) {
+    if (chip) {
+      chip.textContent = '正版';
+      chip.classList.add('chip-blue');
+    }
+    if (btnImport) btnImport.disabled = true;
+    if (btnClear) btnClear.disabled = true;
+    if (hint) hint.textContent = '正版账户的皮肤由 Mojang 自动同步，改皮肤请到 minecraft.net 的个人资料页。';
+    if (note) note.textContent = '这里只展示头像，正版皮肤会跟随账号自动更新，不需要手动导入。';
+    // 官方皮肤只有脸的两块，没有纸娃娃切片，就直接放大头像
+    const face = a.uuid ? faceCache.get(a.uuid) : null;
+    if (face && face.base) {
+      const box2 = $('#skinDoll');
+      box2.textContent = '';
+      const wrap = document.createElement('div');
+      wrap.className = 'doll-head';
+      wrap.style.width = wrap.style.height = '72px';
+      const img = document.createElement('img');
+      img.className = 'doll-p head';
+      img.style.width = img.style.height = '72px';
+      img.src = face.base;
+      img.alt = '';
+      wrap.appendChild(img);
+      if (face.hat) {
+        const hat = document.createElement('img');
+        hat.className = 'doll-p hat';
+        hat.style.width = hat.style.height = '72px';
+        hat.src = face.hat;
+        hat.alt = '';
+        wrap.appendChild(hat);
+      }
+      box2.appendChild(wrap);
+    } else {
+      setDoll(null, '官方皮肤加载中');
+    }
+    return;
+  }
+
+  if (chip) {
+    chip.textContent = '离线';
+    chip.classList.remove('chip-blue');
+  }
+  if (btnImport) btnImport.disabled = false;
+  if (btnClear) btnClear.disabled = false;
+  if (hint) hint.textContent = '离线账户默认显示史蒂夫。导入一张皮肤 PNG 后，侧栏与账号头像都会换成你的皮肤。';
+  if (note) {
+    note.textContent =
+      '支持 64×64（新版，含左右手脚）与 64×32（旧版）贴图，1 MB 以内。皮肤按玩家名保存，改名后需要重新导入；只影响启动器界面，游戏内仍是默认皮肤。';
+  }
+
+  if (!name) {
+    setDoll(null, '先设置玩家名');
+    return;
+  }
+  const r = await api.skinLocal(name);
+  if (!r.ok || !r.data) {
+    setDoll(null, '未导入');
+    return;
+  }
+  if (((S.settings && S.settings.playerName) || '') !== name) return;
+  setDoll(r.data.parts);
+}
+
+async function importSkin() {
+  const name = (S.settings && S.settings.playerName) || '';
+  if (!name) {
+    toast('请先设置离线玩家名', 'warn');
+    return;
+  }
+  const r = await api.skinImport(name);
+  if (!r.ok) {
+    if (r.data && r.data.canceled) return;
+    toast(r.error, 'err');
+    return;
+  }
+  faceCache.delete(`local:${name.toLowerCase()}`);
+  setDoll(r.data.parts);
+  await paintSkin();
+  toast('皮肤已导入', 'ok');
+}
+
+async function clearSkin() {
+  const name = (S.settings && S.settings.playerName) || '';
+  if (!name) return;
+  const r = await api.skinClear(name);
+  faceCache.delete(`local:${name.toLowerCase()}`);
+  setDoll(null, '未导入');
+  avatarEls().forEach(clearFace);
+  await paintSkin();
+  toast(r.data && r.data.removed ? '皮肤已移除' : '本来就没有皮肤', 'ok');
 }
 /* ---------------------------------------------------------------- 正版账号 */
 S.account = null;
@@ -805,8 +1061,8 @@ function renderAccount() {
     if ($('#sideModeChip')) $('#sideModeChip').textContent = '本地';
   }
 
-  // 正版账号有皮肤就画脸，离线或取不到时保留首字母
-  paintSkin();
+  // 正版画官方皮肤，离线画本地导入的那张；皮肤卡跟着一起刷新
+  paintSkin().then(renderSkinCard);
 }
 
 async function loadAccount() {
@@ -1712,6 +1968,14 @@ function renderSettings() {
   );
 
   $$('#themeSwitch .seg').forEach((b) => b.classList.toggle('active', b.dataset.theme === (s.theme || 'auto')));
+  const accent = s.accent === 'wallpaper' ? 'wallpaper' : 'brand';
+  $$('#accentSwitch .seg').forEach((b) => b.classList.toggle('active', b.dataset.accent === accent));
+  const hint = $('#accentHint');
+  if (hint) {
+    const has = Boolean(s.wallpaper && s.wallpaper.enabled && s.wallpaper.image);
+    hint.textContent = accent === 'wallpaper' ? (has ? '跟随背景图' : '缺少背景图') : '校徽蓝';
+    hint.style.color = accent === 'wallpaper' && !has ? 'var(--gold)' : '';
+  }
 
   $('#playerName').value = s.playerName || 'Steve';
   $('#sidePlayer').textContent = s.playerName || 'Steve';
@@ -2095,6 +2359,22 @@ function bindEvents() {
     };
   });
 
+  // 主题色：跟随壁纸取色
+  $$('#accentSwitch .seg').forEach((b) => {
+    b.onclick = async () => {
+      const next = b.dataset.accent === 'wallpaper' ? 'wallpaper' : 'brand';
+      if (next === 'wallpaper' && !(S.settings.wallpaper && S.settings.wallpaper.enabled)) {
+        toast('先在下方选一张背景图，才能跟随取色', 'warn');
+      }
+      S.settings.accent = next;
+      renderSettings();
+      applyAccent();
+      const r = await api.save({ accent: next });
+      if (r && r.ok) S.settings.accent = r.data.accent;
+      applyAccent();
+    };
+  });
+
   // 背景图：拖动即时预览，松手才写盘，避免一路写配置文件
   const saveWall = (patch, persist = true) => {
     S.settings.wallpaper = { ...(S.settings.wallpaper || {}), ...patch };
@@ -2185,6 +2465,8 @@ function bindEvents() {
         S.settings = r.data;
         $('#sidePlayer').textContent = name;
         setAvatarLetter($('#avatar'), name.slice(0, 1).toUpperCase());
+        // 改了名字等于换了一个离线身份，头像和皮肤卡都要重新取
+        paintSkin().then(renderSkinCard);
       }
     });
   }, 400);
@@ -2298,6 +2580,10 @@ function bindEvents() {
   };
   $('#btnMsLogin').onclick = startMsLogin;
   $('#btnMsRelogin').onclick = startMsLogin;
+
+  // 皮肤卡：导入 / 移除（只对离线账户可用）
+  if ($('#btnSkinImport')) $('#btnSkinImport').onclick = importSkin;
+  if ($('#btnSkinClear')) $('#btnSkinClear').onclick = clearSkin;
   $('#btnMsLogout').onclick = async () => {
     await api.authLogout();
     await loadAccount();

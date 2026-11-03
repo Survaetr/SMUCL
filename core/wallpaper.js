@@ -143,6 +143,118 @@ function clearAll() {
   return prune('');
 }
 
+// ------------------------------------------------------------------ 取色
+/**
+ * 从壁纸里提取主色调，用于「跟随壁纸」主题。
+ *
+ * 做法刻意保持轻量：缩到 48×48 后按 HSL 过滤掉近黑、近白与灰像素，
+ * 再对色相做圆周平均（直接对色相求算术平均会让红与紫混成品红），
+ * 权重取「饱和度 × 距中间明度的接近度」，让画面主色胜过零星高光。
+ */
+function hslToHex(h, s, l) {
+  const hue = ((h % 360) + 360) % 360;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((hue / 60) % 2) - 1));
+  const m = l - c / 2;
+  const seg = Math.floor(hue / 60) % 6;
+  const rgb = [
+    [c, x, 0],
+    [x, c, 0],
+    [0, c, x],
+    [0, x, c],
+    [x, 0, c],
+    [c, 0, x],
+  ][seg];
+  return `#${rgb
+    .map((v) => Math.round((v + m) * 255).toString(16).padStart(2, '0'))
+    .join('')}`;
+}
+
+function rgbaOf(hex, alpha) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
+
+/** 采样主色，返回色相与饱和度（0~1）。失败返回 null */
+function sample(name) {
+  if (!exists(name)) return null;
+  let nativeImage;
+  try {
+    ({ nativeImage } = require('electron'));
+  } catch {
+    return null;
+  }
+  if (!nativeImage || typeof nativeImage.createFromPath !== 'function') return null;
+  let img;
+  try {
+    img = nativeImage.createFromPath(path.join(root(), name));
+  } catch {
+    return null;
+  }
+  if (!img || img.isEmpty()) return null;
+  const { width, height } = img.getSize();
+  if (!width || !height) return null;
+  const small = img.resize({ width: 48, height: 48, quality: 'good' });
+  const bmp = small.getBitmap(); // BGRA
+  if (!bmp || bmp.length < 4) return null;
+
+  let cx = 0;
+  let sy = 0;
+  let weight = 0;
+  let satSum = 0;
+  let satN = 0;
+  for (let i = 0; i + 3 < bmp.length; i += 4) {
+    const b = bmp[i] / 255;
+    const g = bmp[i + 1] / 255;
+    const r = bmp[i + 2] / 255;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const l = (max + min) / 2;
+    const d = max - min;
+    if (d < 0.02) continue; // 灰色对色相没有信息量
+    const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    if (l < 0.12 || l > 0.94) continue;
+    if (s < 0.1) continue;
+    let h;
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+    const rad = (h * Math.PI) / 180;
+    const w = s * (1 - Math.abs(l - 0.5) * 1.1);
+    cx += Math.cos(rad) * w;
+    sy += Math.sin(rad) * w;
+    weight += w;
+    satSum += s;
+    satN += 1;
+  }
+  if (!satN || weight < 0.5) return null;
+  const hue = (Math.atan2(sy, cx) * 180) / Math.PI;
+  const sat = Math.min(0.78, Math.max(0.44, (satSum / satN) * 1.35));
+  return { h: (hue + 360) % 360, s: sat };
+}
+
+/**
+ * 生成一套主题色。深色界面用更高的明度，浅色界面压暗，
+ * 保证两种主题下都能满足按钮与边框的对比度。
+ */
+function theme(name) {
+  const base = sample(name);
+  const h = base ? base.h : 214; // 取不到就回落到校徽蓝
+  const s = base ? base.s : 0.62;
+  const darkBase = hslToHex(h, s, 0.6);
+  const darkBase2 = hslToHex(h, s, 0.73);
+  const lightBase = hslToHex(h, s, 0.42);
+  const lightBase2 = hslToHex(h, s, 0.53);
+  return {
+    sampled: Boolean(base),
+    hue: Math.round(h),
+    sat: Math.round(s * 100) / 100,
+    dark: { base: darkBase, base2: darkBase2, soft: rgbaOf(darkBase, 0.18) },
+    light: { base: lightBase, base2: lightBase2, soft: rgbaOf(lightBase, 0.13) },
+  };
+}
+
 // ------------------------------------------------------------------ 协议
 // 必须在 app ready 之前调用一次
 function registerScheme() {
@@ -186,6 +298,7 @@ module.exports = {
   importFile,
   pick,
   clearAll,
+  theme,
   registerScheme,
   registerHandler,
 };

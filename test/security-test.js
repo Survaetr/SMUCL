@@ -219,7 +219,21 @@ Module._load = function patched(request, parent, isMain) {
   return origLoad.call(this, request, parent, isMain);
 };
 
-process.resourcesPath = path.join(TMP, 'resources');
+// 新版 Electron / Node 把 process.resourcesPath 定义成只读属性，
+// 直接赋值会抛 TypeError（Cannot assign to read only property），
+// 这里用 defineProperty 覆盖成可写的值；万一也不允许就保留原值，
+// 让受影响的用例自己报 FAIL，而不是整个脚本崩掉。
+const FAKE_RESOURCES = path.join(TMP, 'resources');
+try {
+  Object.defineProperty(process, 'resourcesPath', {
+    value: FAKE_RESOURCES,
+    writable: true,
+    configurable: true,
+    enumerable: true,
+  });
+} catch {
+  console.log(`  警告  无法覆盖 process.resourcesPath，继续使用 ${process.resourcesPath}`);
+}
 
 // ------------------------------------------------------------------ 断言工具
 let passed = 0;
@@ -475,6 +489,56 @@ async function invoke(channel, payload, event = goodEvent()) {
       }
     }
     check('非法 UUID 一律拒绝', allRejected);
+  }
+
+  {
+    // 离线皮肤的读取/删除只接受玩家名，名字里的路径字符要被清洗掉：
+    // 既不能读到 skins/local 之外的文件，也不能让 clear 误删别的东西
+    const evil = ['../../smucl-config.json', '..\\..\\account.dat', 'C:/Windows/notepad.exe', '/etc/passwd'];
+    let clean = true;
+    for (const name of evil) {
+      const r = await invoke('skin:local', { name });
+      if (!r.ok || r.data !== null) {
+        clean = false;
+        console.log('  未落空:', JSON.stringify(name), JSON.stringify(r));
+      }
+      const c = await invoke('skin:clear', { name });
+      if (!c.ok || (c.data && c.data.removed)) {
+        clean = false;
+        console.log('  误删:', JSON.stringify(name));
+      }
+    }
+    check('离线皮肤名不会穿越目录', clean);
+  }
+
+  {
+    // 空名字不能触发导入（导入会弹系统文件框，这里只验证前置拒绝）
+    const r = await invoke('skin:import', { name: '   ' });
+    check('空玩家名拒绝导入', r.ok === false);
+  }
+
+  console.log('\n[14] N7 壁纸取色与主题色');
+  {
+    // 取色入参是文件名，必须落在 wallpapers/ 目录内且符合命名规则
+    let denied = true;
+    for (const image of ['../../smucl-config.json', 'C:/Windows/win.ini', 'wall-1.png', '', null]) {
+      const r = await invoke('wallpaper:palette', { image });
+      if (!r.ok || r.data !== null) {
+        denied = false;
+        console.log('  未落空:', JSON.stringify(image), JSON.stringify(r));
+      }
+    }
+    check('非壁纸目录的文件名不会触发取色', denied);
+  }
+
+  {
+    // 主题色开关只接受两个枚举值
+    const a = await invoke('settings:save', { accent: 'wallpaper' });
+    check('主题色可以切到跟随壁纸', a.ok === true && a.data.accent === 'wallpaper');
+    const b = await invoke('settings:save', { accent: 'rainbow' });
+    check('非法主题色被拒绝', b.ok === false);
+    const c = await invoke('settings:save', { accent: 'brand' });
+    check('主题色可以切回校徽蓝', c.ok === true && c.data.accent === 'brand');
   }
 
   Module._load = origLoad;

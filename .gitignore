@@ -34,3 +34,8 @@ build/promo2/
 
 # 落地页整页截图
 build/site-shots/
+
+# 本地宣传素材与测试用临时用户目录（体积大、可随时重建）
+build/profiles/
+build/shots200/
+build/accents/

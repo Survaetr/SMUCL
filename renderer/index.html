@@ -458,6 +458,28 @@
               </div>
             </div>
 
+            <div class="card skin-card">
+              <div class="card-head">
+                <h2>皮肤</h2>
+                <span class="chip" id="skinModeChip">离线</span>
+              </div>
+              <div class="skin-body">
+                <div class="skin-doll" id="skinDoll"><span class="doll-empty">未导入</span></div>
+                <div class="skin-side">
+                  <p class="hint" id="skinHint">
+                    离线账户默认显示史蒂夫。导入一张皮肤 PNG 后，侧栏与账号头像都会换成你的皮肤。
+                  </p>
+                  <div class="row">
+                    <button class="btn-sm btn-primary" id="btnSkinImport">导入皮肤 PNG</button>
+                    <button class="btn-sm" id="btnSkinClear">移除</button>
+                  </div>
+                  <p class="hint" id="skinNote">
+                    支持 64×64（新版，含左右手脚）与 64×32（旧版）贴图，1 MB 以内。皮肤按玩家名保存，改名后需要重新导入；只影响启动器界面，游戏内仍是默认皮肤。
+                  </p>
+                </div>
+              </div>
+            </div>
+
             <div class="card">
               <div class="card-head"><h2>Java 运行时</h2><button class="btn-sm" id="btnRescanJava">重新扫描</button></div>
               <p class="hint">游戏需要与版本匹配的 Java；1.17+ 需要 Java 17，1.20.5+ 建议 Java 21。</p>
@@ -513,6 +535,14 @@
                   <button class="seg" data-theme="light">浅色</button>
                 </div>
                 <p class="hint">浅色主题会保留首页横幅与运行日志的深色底，避免像素 Logo 失效。</p>
+              </div>
+              <div class="field">
+                <label>主题色 <b id="accentHint">校徽蓝</b></label>
+                <div class="segmented wide" id="accentSwitch">
+                  <button class="seg" data-accent="brand">固定校徽蓝</button>
+                  <button class="seg" data-accent="wallpaper">跟随背景图取色</button>
+                </div>
+                <p class="hint">跟随取色会从背景图里挑出主色调，重新生成按钮、选中态与高光的配色。</p>
               </div>
 
               <div class="wp-block">
