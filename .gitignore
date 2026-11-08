@@ -32,6 +32,9 @@ build/promo2/
 # 2.0 宣传片产物（45 MB，不入库；生成脚本照常入库）
 build/promo3/
 
+# 2.0.1 宣传片产物（成片与封面，交付到桌面，不入库）
+build/promo4/
+
 # 发布流程的临时响应文件
 build/relid.txt
 build/up*.json
@@ -46,3 +49,4 @@ build/site-shots/
 build/profiles/
 build/shots200/
 build/accents/
+build/test-userdata/
