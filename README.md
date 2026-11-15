@@ -9,7 +9,7 @@
 [![Electron](https://img.shields.io/badge/Electron-45-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6?logo=windows&logoColor=white)](#)
 [![License](https://img.shields.io/badge/license-MIT-3DA639)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.0.1-3b7dd8](#)
+[![Version](https://img.shields.io/badge/version-2.1.0-3b7dd8](#)
 [![Release](https://img.shields.io/github/v/release/Survaetr/SMUCL?label=release&color=3DA639)](https://github.com/Survaetr/SMUCL/releases)
 
 </div>
@@ -19,7 +19,7 @@
 > 仓库页绿色的 `Code → Download ZIP` 拿到的是源码，解压后只有 `main.js`、`core/`、`build/` 这些文件，
 > **没有 `SMUCL.exe`**，要装 Node.js 才能跑。
 >
-> 免安装版直链：[**SMUCL-2.0.1-portable.zip**](https://github.com/Survaetr/SMUCL/releases/download/v2.0.1/SMUCL-2.0.1-portable.zip)（142 MB，解压后双击 `SMUCL.exe`）
+> 免安装版直链：[**SMUCL-2.1.0-portable.zip**](https://github.com/Survaetr/SMUCL/releases/download/v2.1.0/SMUCL-2.1.0-portable.zip)（142 MB，解压后双击 `SMUCL.exe`）
 > ·
 > 国内网盘：[夸克网盘](https://pan.quark.cn/s/a054da815452)
 > ·
@@ -161,6 +161,14 @@ SMUCL/
 https://survaetr.github.io/SMUCL/ （GitHub Pages，内容放在 `gh-pages` 分支根目录）。
 
 ## 更新记录
+
+**v2.1.0**（2026-11-15）正版与离线自由切换
+
+- 正版账号登录之后，依然可以随时切到离线，切回来不用重新授权（令牌一直保留）
+- 首页「准备出发」卡片直接选正版或离线；设置 → 账号 里也有同一个开关，两处同步
+- 选正版时玩家名由账号决定并锁定；选离线时手动填写
+- 侧栏名字、头像、皮肤卡都跟着当前身份走
+- 未登录时正版选项置灰；正版失效时提示可以切到离线
 
 **v2.0.1**（2026-11-03）自动更新修复
 

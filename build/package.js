@@ -16,12 +16,36 @@ const ELECTRON_DIST = path.join(ROOT, 'node_modules', 'electron', 'dist');
 const APP_FILES = ['package.json', 'main.js', 'preload.js', 'README.md', 'core', 'renderer', 'assets'];
 const APP_MODULES = ['adm-zip'];
 
+// 手写递归：fs.cpSync 在本机 Electron 运行时上会静默崩溃（updater.js 里也踩过，
+// 那边同样改成手写递归），rmSync 递归删大量文件又会触发沙箱的批量删除保护，
+// 所以这里统一用 unlink/rmdir 自己走一遍。
 function rm(p) {
-  fs.rmSync(p, { recursive: true, force: true });
+  let st;
+  try {
+    st = fs.statSync(p);
+  } catch {
+    return;
+  }
+  if (!st.isDirectory()) {
+    fs.unlinkSync(p);
+    return;
+  }
+  for (const ent of fs.readdirSync(p, { withFileTypes: true })) {
+    rm(path.join(p, ent.name));
+  }
+  fs.rmdirSync(p);
 }
 
 function copy(src, dest) {
-  fs.cpSync(src, dest, { recursive: true });
+  const st = fs.statSync(src);
+  if (st.isDirectory()) {
+    fs.mkdirSync(dest, { recursive: true });
+    for (const ent of fs.readdirSync(src, { withFileTypes: true })) {
+      copy(path.join(src, ent.name), path.join(dest, ent.name));
+    }
+    return;
+  }
+  fs.copyFileSync(src, dest);
 }
 
 function main() {

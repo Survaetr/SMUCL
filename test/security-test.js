@@ -541,6 +541,33 @@ async function invoke(channel, payload, event = goodEvent()) {
     check('主题色可以切回校徽蓝', c.ok === true && c.data.accent === 'brand');
   }
 
+  console.log('\n[15] N8 启动身份切换（正版 / 离线）');
+  {
+    const st = await invoke('auth:status');
+    const logged = Boolean(st.ok && st.data && st.data.loggedIn);
+
+    // 切离线永远允许：这是退路，不能因为账号失效就把人锁死
+    const a = await invoke('auth:setMode', { mode: 'offline' });
+    check('可以切到离线身份', a.ok === true && a.data.mode === 'offline');
+
+    // 没登录就不许声称自己是正版
+    if (!logged) {
+      const b = await invoke('auth:setMode', { mode: 'msa' });
+      check('未登录时切正版被拒绝', b.ok === false);
+    }
+
+    // 越界取值必须归一化，不能把任意字符串写进配置
+    const c = await invoke('auth:setMode', { mode: 'admin' });
+    check('非法身份取值被归一化为离线', c.ok === true && c.data.mode === 'offline');
+
+    const d = await invoke('settings:save', { loginMode: 'msa' });
+    check('设置层接受正版枚举', d.ok === true && d.data.loginMode === 'msa');
+    const e = await invoke('settings:save', { loginMode: '../../evil' });
+    check('设置层把非法身份归一化为离线', e.ok === true && e.data.loginMode === 'offline');
+    const f = await invoke('settings:save', { loginMode: 'offline' });
+    check('设置层可以切回离线', f.ok === true && f.data.loginMode === 'offline');
+  }
+
   Module._load = origLoad;
 
   console.log(`\n===== 结果：${passed} 通过，${failures.length} 失败 =====`);

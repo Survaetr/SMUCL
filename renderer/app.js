@@ -844,11 +844,17 @@ function applyFace(el, face) {
   el.classList.add('has-skin');
 }
 
+/** 本次启动实际会用到的身份是不是正版（登录了但切到离线时算离线） */
+function isOnlineActive() {
+  const a = S.account;
+  return Boolean(a && a.loggedIn && a.uuid && (S.settings && S.settings.loginMode) === 'msa');
+}
+
 async function paintSkin() {
   const a = S.account;
   const offlineName = (S.settings && S.settings.playerName) || '';
 
-  if (a && a.loggedIn && a.uuid) {
+  if (isOnlineActive()) {
     let face = faceCache.get(a.uuid);
     if (!face) {
       // 官方皮肤取不到时主进程会回退到本地那张，所以这里把玩家名一起带上
@@ -962,7 +968,8 @@ async function renderSkinCard() {
   const btnImport = $('#btnSkinImport');
   const btnClear = $('#btnSkinClear');
 
-  if (a.loggedIn) {
+  // 皮肤卡跟着「本次启动身份」走：切到离线时允许导入本地皮肤，哪怕正版账号还登着
+  if (isOnlineActive()) {
     if (chip) {
       chip.textContent = '正版';
       chip.classList.add('chip-blue');
@@ -1058,36 +1065,93 @@ S.account = null;
 
 function renderAccount() {
   const a = S.account || {};
+  const logged = Boolean(a.loggedIn);
+  const online = isOnlineActive();
+
   const chip = $('#accountModeChip');
-  if (!chip) return;
-  chip.textContent = a.loggedIn ? '正版' : '离线';
-  chip.classList.toggle('chip-blue', Boolean(a.loggedIn));
+  if (chip) {
+    chip.textContent = online ? '正版' : '离线';
+    chip.classList.toggle('chip-blue', online);
+  }
 
-  $('#accountIdle').hidden = Boolean(a.loggedIn);
-  $('#accountSigned').hidden = !a.loggedIn;
+  $('#accountIdle').hidden = logged;
+  $('#accountSigned').hidden = !logged;
 
-  if (a.loggedIn) {
+  if (logged) {
     $('#accountName').textContent = a.name;
     $('#accountUuid').textContent = a.uuid;
     setAvatarLetter($('#accountAvatar'), (a.name || 'S').slice(0, 1).toUpperCase());
     $('#accountNote').textContent = a.encrypted
       ? '登录令牌已用系统凭据加密保存在本机；游戏启动时自动续期。'
       : '注意：当前系统不支持加密存储，令牌以明文保存在本机配置目录。';
-    $('#sidePlayer').textContent = a.name;
-    setAvatarLetter($('#avatar'), (a.name || 'S').slice(0, 1).toUpperCase());
-    if ($('#sideAccountMode')) $('#sideAccountMode').textContent = '正版账户';
-    if ($('#sideModeChip')) $('#sideModeChip').textContent = '正版';
   } else {
     $('#msClientIdInput').value = a.clientId || '';
     $('#offlineNameLabel').textContent = (S.settings && S.settings.playerName) || 'Steve';
-    $('#sidePlayer').textContent = (S.settings && S.settings.playerName) || 'Steve';
-    setAvatarLetter($('#avatar'), (S.settings && S.settings.playerName) || 'Steve');
-    if ($('#sideAccountMode')) $('#sideAccountMode').textContent = '离线账户';
-    if ($('#sideModeChip')) $('#sideModeChip').textContent = '本地';
   }
 
-  // 正版画官方皮肤，离线画本地导入的那张；皮肤卡跟着一起刷新
+  applyLoginModeUI();
   paintSkin().then(renderSkinCard);
+}
+
+/**
+ * 把「启动身份」同步到所有相关位置：两处分段控件、首页玩家名输入框、侧栏、提示文案。
+ * 只改界面，不发请求——切换动作在 setLoginMode 里做。
+ */
+function applyLoginModeUI() {
+  const s = S.settings || {};
+  const logged = Boolean(S.account && S.account.loggedIn);
+  const mode = s.loginMode === 'msa' ? 'msa' : 'offline';
+  const online = mode === 'msa' && logged;
+  const name = online ? S.account.name : (s.playerName || 'Steve');
+
+  $$('#homeModeSeg .seg, #accountModeSeg .seg').forEach((b) => {
+    const isMsa = b.dataset.mode === 'msa';
+    b.classList.toggle('active', isMsa === online);
+    b.disabled = isMsa && !logged;
+    b.title = isMsa && !logged ? '还没有登录微软账号' : '';
+  });
+
+  const input = $('#playerName');
+  if (input) {
+    // 正版身份下玩家名由账号决定，输入框只做展示
+    input.disabled = online;
+    input.value = name;
+    input.title = online ? '用正版身份启动时，玩家名由账号决定' : '';
+  }
+
+  const hint = online
+    ? `将以正版身份「${name}」启动，可进入正版验证服务器。`
+    : logged
+      ? `将以离线身份「${name}」启动；正版账号仍保持登录，随时可以切回。`
+      : `将以离线身份「${name}」启动，只能进入离线服务器。`;
+  if ($('#homeModeHint')) $('#homeModeHint').textContent = hint;
+  if ($('#accountModeHint')) $('#accountModeHint').textContent = hint;
+
+  // 侧栏跟着显示「这次真正会用的那个身份」
+  const side = $('#sidePlayer');
+  if (side) side.textContent = name;
+  setAvatarLetter($('#avatar'), (name || 'S').slice(0, 1).toUpperCase());
+  if ($('#sideAccountMode')) $('#sideAccountMode').textContent = online ? '正版账户' : '离线账户';
+  if ($('#sideModeChip')) $('#sideModeChip').textContent = online ? '正版' : '本地';
+}
+
+/** 切换启动身份：只写 loginMode，不碰已保存的正版令牌 */
+async function setLoginMode(next) {
+  const want = next === 'msa' ? 'msa' : 'offline';
+  if (want === 'msa' && !(S.account && S.account.loggedIn)) {
+    toast('还没有登录微软账号，请先在上方登录', 'warn');
+    return;
+  }
+  if (S.settings.loginMode === want) return;
+
+  const r = await api.authSetMode(want);
+  if (!r || !r.ok) {
+    toast((r && r.error) || '切换失败', 'err');
+    return;
+  }
+  S.settings.loginMode = (r.data && r.data.mode) || want;
+  renderAccount();
+  toast(want === 'msa' ? '已切换为正版身份' : '已切换为离线身份', 'ok');
 }
 
 async function loadAccount() {
@@ -2002,9 +2066,8 @@ function renderSettings() {
     hint.style.color = accent === 'wallpaper' && !has ? 'var(--gold)' : '';
   }
 
-  $('#playerName').value = s.playerName || 'Steve';
-  $('#sidePlayer').textContent = s.playerName || 'Steve';
-  setAvatarLetter($('#avatar'), (s.playerName || 'S').slice(0, 1).toUpperCase());
+  // 玩家名与侧栏跟随「当前生效身份」：正版身份下显示账号名
+  applyLoginModeUI();
 
   renderWallpaper();
 }
@@ -2606,14 +2669,17 @@ function bindEvents() {
   $('#btnMsLogin').onclick = startMsLogin;
   $('#btnMsRelogin').onclick = startMsLogin;
 
+  // 启动身份：正版 / 离线（首页与设置页共用同一份状态）
+  $$('#homeModeSeg .seg, #accountModeSeg .seg').forEach((b) => {
+    b.onclick = () => setLoginMode(b.dataset.mode === 'msa' ? 'msa' : 'offline');
+  });
+
   // 皮肤卡：导入 / 移除（只对离线账户可用）
   if ($('#btnSkinImport')) $('#btnSkinImport').onclick = importSkin;
   if ($('#btnSkinClear')) $('#btnSkinClear').onclick = clearSkin;
   $('#btnMsLogout').onclick = async () => {
     await api.authLogout();
     await loadAccount();
-    $('#sidePlayer').textContent = (S.settings && S.settings.playerName) || 'Steve';
-    setAvatarLetter($('#avatar'), ((S.settings && S.settings.playerName) || 'S').slice(0, 1).toUpperCase());
     toast('已退出正版账号', 'ok');
   };
 

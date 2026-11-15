@@ -867,9 +867,18 @@ function registerIpc() {
     return { ok: true, data: { clientId: v } };
   });
 
+  // 切换「启动时用哪个身份」。只动 loginMode，不删除已保存的正版令牌，
+  // 所以离线/正版可以随时来回切，不用重新走一次微软授权。
   handle('auth:setMode', async (_e, { mode }) => {
-    await settingsLib.save({ loginMode: mode === 'msa' ? 'msa' : 'offline' });
-    return { ok: true };
+    const next = mode === 'msa' ? 'msa' : 'offline';
+    if (next === 'msa') {
+      const saved = accountLib.load();
+      if (!saved || !saved.name) {
+        return { ok: false, error: '还没有登录微软账号，请先完成正版登录' };
+      }
+    }
+    await settingsLib.save({ loginMode: next });
+    return { ok: true, data: { mode: next } };
   });
 
   handle('auth:login', async () => {
@@ -1088,9 +1097,14 @@ function registerIpc() {
         };
       }
 
-      const account = settings.loginMode === 'msa' ? await freshAccount() : null;
-      if (settings.loginMode === 'msa' && !account) {
-        return { ok: false, error: '正版账号已失效，请在「设置 → 账号」重新登录' };
+      // 按用户选定的「启动身份」决定注入正版还是走离线参数
+      const wantOnline = settings.loginMode === 'msa';
+      const account = wantOnline ? await freshAccount() : null;
+      if (wantOnline && !account) {
+        return {
+          ok: false,
+          error: '正版身份不可用（账号已失效）。可在首页「启动身份」切到离线，或到「设置 → 账号」重新登录。',
+        };
       }
       const runtime = {
         ...settings,
