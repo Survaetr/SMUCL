@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('smucl', {
   manifest: (opts) => ipcRenderer.invoke('versions:manifest', opts || {}),
   installed: () => ipcRenderer.invoke('versions:installed'),
   detectJava: () => ipcRenderer.invoke('java:detect'),
+  javaEnsure: (major) => ipcRenderer.invoke('java:ensure', { major }),
+  onJavaProgress: (cb) => on('java:progress', cb),
   command: (id, dir) => ipcRenderer.invoke('version:command', { id, dir }),
   sizes: () => ipcRenderer.invoke('versions:sizes'),
 

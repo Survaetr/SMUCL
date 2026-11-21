@@ -7,6 +7,7 @@ const { pathToFileURL } = require('url');
 
 const settingsLib = require('./core/settings');
 const javaLib = require('./core/java');
+const jreLib = require('./core/jre');
 const versionLib = require('./core/version');
 const installer = require('./core/install');
 const launcher = require('./core/launch');
@@ -547,6 +548,33 @@ async function refreshJava() {
   return javaCache;
 }
 
+/**
+ * 按目标主版本挑一个 Java；本地确实没有时返回 null，由调用方决定是否下载。
+ * 这里统一「用户手动指定优先」的规则，避免各处各写一遍。
+ */
+function pickJava(required) {
+  const settings = settingsLib.all();
+  const preferred = settings.javaPath
+    ? javaCache.find((j) => j.java === settings.javaPath || j.path === settings.javaPath)
+    : null;
+  return preferred || javaLib.pick(javaCache, required);
+}
+
+/**
+ * 下载并安装一份缺失的运行时，完成后刷新缓存。
+ * 只在用户明确确认后才调用，不会在检查阶段偷偷占带宽。
+ */
+async function provisionJava(required) {
+  const settings = settingsLib.all();
+  const want = jreLib.normalizeMajor(required);
+  const send = (p) => {
+    if (win && !win.isDestroyed()) win.webContents.send('java:progress', p);
+  };
+  const got = await jreLib.ensure({ mcDir: settings.mcDir, major: want, onProgress: send });
+  await refreshJava().catch(() => {});
+  return got;
+}
+
 /** 后台检查最新版本；发现变化时推送给渲染进程 */
 async function checkLatest(notify = true) {
   const { downloadSource, autoCheck } = settingsLib.all();
@@ -630,6 +658,23 @@ function registerIpc() {
     try {
       await refreshJava();
       return { ok: true, data: javaCache };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  /**
+   * 按需下载并安装一份 Java。
+   * major 只接受受支持的枚举，避免被渲染层当成任意下载参数的入口。
+   */
+  handle('java:ensure', async (_e, { major } = {}) => {
+    // 只认三个受支持的枚举，且必须是数字：不接受字符串或其它可被拼装的取值
+    if (typeof major !== 'number' || ![8, 17, 21].includes(major)) {
+      return { ok: false, error: `不支持的 Java 版本：${String(major)}` };
+    }
+    try {
+      const got = await provisionJava(major);
+      return { ok: true, data: { ...got, list: javaCache } };
     } catch (e) {
       return { ok: false, error: e.message };
     }
@@ -1080,12 +1125,9 @@ function registerIpc() {
       const deps = await ensureDeps(gameDir, versionId, logLine);
       if (!deps.ok) return deps;
 
-      if (!javaCache.length) await refreshJava().catch(() => {});
+      if (!javaCache.length) await refreshJava().catch(() => []);
       const required = (meta.javaVersion && meta.javaVersion.majorVersion) || 8;
-      const preferred = settings.javaPath
-        ? javaCache.find((j) => j.java === settings.javaPath || j.path === settings.javaPath)
-        : null;
-      const picked = preferred || javaLib.pick(javaCache, required);
+      const picked = pickJava(required);
 
       if (!picked) {
         const have = javaCache.length
@@ -1093,7 +1135,9 @@ function registerIpc() {
           : '无';
         return {
           ok: false,
-          error: `该版本需要 Java ${required}，本机检测到的是 Java ${have}。请安装 Java ${required}，或在「设置 → Java 运行时」里手动指定。`,
+          needJava: true,
+          major: jreLib.normalizeMajor(required),
+          error: `该版本需要 Java ${required}，本机检测到的是 Java ${have}`,
         };
       }
 
@@ -1361,12 +1405,9 @@ function registerIpc() {
     } catch {
       /* 元数据读不到就按 17 兜底 */
     }
-    if (!javaCache.length) await refreshJava().catch(() => {});
-    const preferred = settings.javaPath
-      ? javaCache.find((j) => j.java === settings.javaPath || j.path === settings.javaPath)
-      : null;
-    const picked = preferred || javaLib.pick(javaCache, required);
-    return picked ? picked.java || picked.path : '';
+    if (!javaCache.length) await refreshJava().catch(() => []);
+    const picked = pickJava(required);
+    return { path: picked ? picked.java || picked.path : '', required };
   };
 
   const cfKey = () => settingsLib.all().cfApiKey || '';
@@ -1405,12 +1446,20 @@ function registerIpc() {
     };
     try {
       const baseUrl = await vanillaUrl(mc);
-      const javaPath = await javaFor(mc);
+      const java = await javaFor(mc);
+      if (!java.path) {
+        return {
+          ok: false,
+          needJava: true,
+          major: jreLib.normalizeMajor(java.required),
+          error: `安装整合包需要 Java ${java.required}，本机没有可用的运行时`,
+        };
+      }
       const common = {
         gameDir: settingsLib.all().mcDir,
         downloadUrl,
         fileName: name,
-        javaPath,
+        javaPath: java.path,
         source: settingsLib.all().downloadSource === 'mojang' ? 'mojang' : 'bmcl',
         baseUrl,
         onProgress: send,
@@ -1481,12 +1530,18 @@ function registerIpc() {
     } catch {
       /* 元数据读不到就按 17 兜底 */
     }
-    if (!javaCache.length) await refreshJava().catch(() => {});
-    const preferred = settings.javaPath
-      ? javaCache.find((j) => j.java === settings.javaPath || j.path === settings.javaPath)
-      : null;
-    const picked = preferred || javaLib.pick(javaCache, required);
-    const javaPath = picked ? assertUsableJava(picked.java || picked.path) : '';
+    if (!javaCache.length) await refreshJava().catch(() => []);
+    const picked = pickJava(required);
+    if (!picked) {
+      // 交给渲染层询问是否自动下载，而不是抛一句无从下手的错误
+      return {
+        ok: false,
+        needJava: true,
+        major: jreLib.normalizeMajor(required),
+        error: `安装 ${loader} 需要 Java ${required}，本机没有可用的运行时`,
+      };
+    }
+    const javaPath = assertUsableJava(picked.java || picked.path);
 
     const r = await loadersLib.install({
       loader: String(loader).toLowerCase(),

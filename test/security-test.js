@@ -568,6 +568,41 @@ async function invoke(channel, payload, event = goodEvent()) {
     check('设置层可以切回离线', f.ok === true && f.data.loginMode === 'offline');
   }
 
+  console.log('\n[16] N9 Java 运行时按需获取');
+  {
+    // 只接受三个受支持的版本号，且必须是数字：
+    // 否则这个接口会变成「让主进程下载任意东西」的入口
+    let denied = true;
+    for (const major of [0, -1, 1, 8.5, 17.5, 99, '21', '8', null, undefined, 'abc', {}, [8]]) {
+      const r = await invoke('java:ensure', { major });
+      if (r.ok !== false) {
+        denied = false;
+        console.log('  未被拒绝:', JSON.stringify(major), JSON.stringify(r));
+      }
+    }
+    check('非受支持的 Java 版本一律拒绝', denied);
+
+    const jre = require(path.join(ROOT, 'core', 'jre'));
+    check(
+      '需求版本归一化到 8 / 17 / 21',
+      [8, 11, 16, 17, 20, 21, 25].map(jre.normalizeMajor).join(',') === '8,17,17,17,17,21,21'
+    );
+    check(
+      '归一化对非法输入兜底到 21',
+      jre.normalizeMajor(undefined) === 21 && jre.normalizeMajor('x') === 21 && jre.normalizeMajor(0) === 21
+    );
+    // 找不到 java 时必须是空串，不能把目录当成可执行文件返回
+    check('目录里没有 java 时返回空串', jre.findJava(path.join(TMP, 'no-such-jre')) === '');
+    check('用不存在目录清理不抛异常', (() => {
+      try {
+        jre.removeTree(path.join(TMP, 'no-such-jre'));
+        return true;
+      } catch {
+        return false;
+      }
+    })());
+  }
+
   Module._load = origLoad;
 
   console.log(`\n===== 结果：${passed} 通过，${failures.length} 失败 =====`);

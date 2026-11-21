@@ -336,6 +336,94 @@ function closeModal() {
   $('#modalMask').hidden = true;
 }
 
+/* ------------------------------------------------ Java 运行时按需获取 */
+/**
+ * 本机没有匹配的 Java 时，先问再下，不在后台偷偷占带宽。
+ * 只装到游戏目录的 runtime/jre-{major}，不碰系统环境。
+ * @returns {Promise<boolean>} true 表示已就绪，可以重试原来的操作
+ */
+function ensureJavaRuntime(major) {
+  const mb = (n) => `${(n / 1048576).toFixed(1)} MB`;
+  return new Promise((resolve) => {
+    let stop = null;
+    let busy = false;
+
+    const finish = (ok) => {
+      if (stop) stop();
+      stop = null;
+      closeModal();
+      resolve(ok);
+    };
+
+    openModal({
+      title: `需要 Java ${major}`,
+      sub: '本机没有找到合适的运行时',
+      // .modal-body 是 pre-wrap，模板里的换行与缩进会被原样渲染，这里压成一行
+      html:
+        `<p class="hint" style="margin:0 0 12px">可以自动下载一份 Temurin JRE ${major}（约 40–55 MB），` +
+        `装到游戏目录的 <code>runtime/jre-${major}</code>。不修改系统环境，也不会覆盖你已经装好的 Java。</p>` +
+        `<div id="jreDl" hidden style="margin-top:12px">` +
+        `<div class="progress"><i id="jreDlFill"></i></div>` +
+        `<small class="hint" id="jreDlText" style="display:block;margin-top:8px"></small></div>`,
+      buttons: [
+        {
+          text: '稍后再说',
+          onClick: () => {
+            if (!busy) finish(false);
+          },
+        },
+        {
+          text: `下载 Java ${major}`,
+          primary: true,
+          onClick: async (e) => {
+            if (busy) return;
+            busy = true;
+            const btn = e && e.target;
+            if (btn) {
+              btn.disabled = true;
+              btn.textContent = '处理中…';
+            }
+            const box = $('#jreDl');
+            const fill = $('#jreDlFill');
+            const text = $('#jreDlText');
+            if (box) box.hidden = false;
+
+            // 下载阶段拿不到 Content-Length，用已收字节估算；解压阶段用条目比例
+            stop = api.onJavaProgress((p) => {
+              if (!p || !text) return;
+              if (p.stage === 'download') {
+                if (fill) fill.style.width = `${Math.min(92, ((p.bytes || 0) / 54525952) * 100)}%`;
+                text.textContent = `正在下载：${mb(p.bytes || 0)}（来源 ${p.name || ''}）`;
+              } else if (p.stage === 'extract') {
+                if (fill) fill.style.width = `${92 + (p.percent || 0) * 0.08}%`;
+                text.textContent = `正在解压：${p.percent || 0}%`;
+              } else if (p.message) {
+                text.textContent = p.message;
+              }
+            });
+
+            const r = await api.javaEnsure(major);
+            if (!r.ok) {
+              if (text) text.textContent = r.error || '下载失败';
+              if (btn) {
+                btn.disabled = false;
+                btn.textContent = '重试';
+              }
+              busy = false;
+              return;
+            }
+
+            S.javaList = (r.data && r.data.list) || S.javaList;
+            renderJavaSummary();
+            if ($('#view-settings').classList.contains('active')) renderSettings();
+            finish(true);
+          },
+        },
+      ],
+    });
+  });
+}
+
 /* ---------------------------------------------------------------- 更新 */
 async function checkUpdate(silent = true) {
   if (!silent) toast('正在检查更新…');
@@ -784,7 +872,22 @@ async function installLoader() {
   btn.disabled = true;
   setLoaderStatus(`准备安装 ${LOADER_LABEL[loader]} ${ver}…`, 'busy');
   try {
-    const r = await api.installLoader(loader, mc, ver, mcUrl);
+    let r = await api.installLoader(loader, mc, ver, mcUrl);
+
+    // 缺 Java 时不把问题直接甩给用户：问一句，运行时装好后自动重试一次
+    if (!r.ok && r.needJava) {
+      btn.disabled = false;
+      setLoaderStatus(r.error, 'warn');
+      const ok = await ensureJavaRuntime(r.major);
+      if (!ok) {
+        setLoaderStatus(`${r.error}。已取消自动下载，可在「设置 → Java 运行时」手动指定`, 'err');
+        return;
+      }
+      btn.disabled = true;
+      setLoaderStatus('Java 已就绪，继续安装…', 'busy');
+      r = await api.installLoader(loader, mc, ver, mcUrl);
+    }
+
     if (!r.ok) {
       setLoaderStatus(r.error, 'err');
       toast(r.error, 'err');
@@ -2619,7 +2722,20 @@ function bindEvents() {
     const btn = $('#playBtn');
     btn.disabled = true;
     $('.mc-btn-face', btn).textContent = '启 动 中…';
-    const r = await api.launch(cur.id, cur.dir);
+    let r = await api.launch(cur.id, cur.dir);
+
+    // 首次在这台机器上玩、又没装 Java：补一份再启动，不要让用户自己去装
+    if (!r.ok && r.needJava) {
+      $('.mc-btn-face', btn).textContent = '准 备 Java…';
+      const ok = await ensureJavaRuntime(r.major);
+      if (!ok) {
+        $('.mc-btn-face', btn).textContent = '开 始 游 戏';
+        toast('已取消下载 Java，可到「设置 → Java 运行时」手动指定', 'warn');
+        return;
+      }
+      r = await api.launch(cur.id, cur.dir);
+    }
+
     btn.disabled = false;
     if (!r.ok) {
       $('.mc-btn-face', btn).textContent = '开 始 游 戏';
@@ -2869,6 +2985,31 @@ function bindEvents() {
       toast(path ? '已指定 Java 运行时' : '已切换为自动选择 Java', 'ok');
     }
   });
+
+  // 主动装一份运行时：只保留三个长期支持版本，避免用户去猜该装哪个
+  $('#btnGetJava').onclick = () => {
+    const have = new Set((S.javaList || []).map((j) => j.major));
+    const pick = (m, note) =>
+      ({
+        text: `Java ${m}${have.has(m) ? '（已装）' : ''}${note ? ` · ${note}` : ''}`,
+        primary: !have.has(m),
+        onClick: async () => {
+          closeModal();
+          const ok = await ensureJavaRuntime(m);
+          if (ok) toast(`Java ${m} 已就绪`, 'ok');
+        },
+      });
+    openModal({
+      title: '获取 Java 运行时',
+      sub: '从清华镜像或 Adoptium 下载 Temurin JRE',
+      html:
+        `<p class="hint" style="margin:0 0 6px">不同游戏版本要求的 Java 不同，选一个需要的下载即可：` +
+        `<br>· <b>Java 8</b> — 1.16.5 及更早` +
+        `<br>· <b>Java 17</b> — 1.17 ~ 1.20.4` +
+        `<br>· <b>Java 21</b> — 1.20.5 及以后</p>`,
+      buttons: [pick(8), pick(17), pick(21), { text: '取消', onClick: closeModal }],
+    });
+  };
 
   $('#btnRescanJava').onclick = async () => {
     const r = await api.detectJava();
