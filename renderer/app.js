@@ -290,6 +290,59 @@ function toast(message, type = 'info') {
   while (box.children.length > 4) box.firstElementChild.remove();
 }
 
+/* ------------------------------------------------ 右下角下载进度 */
+/**
+ * 常驻进度卡：下载模组 / 光影 / 材质包 / 整合包时都显示百分比。
+ * 进度事件来自主进程，多个下载不会叠卡，只更新同一张。
+ */
+const dockProgress = (() => {
+  let hideTimer = 0;
+
+  const paint = (pct, sub, cls) => {
+    const box = $('#progressDock');
+    if (!box) return;
+    clearTimeout(hideTimer);
+    box.hidden = false;
+    box.classList.remove('done', 'err');
+    if (cls) box.classList.add(cls);
+    const v = Math.max(0, Math.min(100, Number(pct) || 0));
+    const pctEl = $('#pdPct');
+    const fill = $('#pdFill');
+    const subEl = $('#pdSub');
+    if (pctEl) pctEl.textContent = `${Math.round(v)}%`;
+    if (fill) fill.style.width = `${v}%`;
+    if (subEl && sub != null) subEl.textContent = sub;
+  };
+
+  const hideLater = (ms) => {
+    hideTimer = setTimeout(() => {
+      const box = $('#progressDock');
+      if (box) box.hidden = true;
+    }, ms);
+  };
+
+  return {
+    start(title) {
+      const t = $('#pdTitle');
+      if (t) t.textContent = title || '正在下载';
+      paint(0, '准备中…');
+    },
+    update(p) {
+      if (!p) return;
+      const sub = p.message || p.stage || '';
+      paint(p.percent != null ? p.percent : 0, sub);
+    },
+    done(msg) {
+      paint(100, msg || '完成', 'done');
+      hideLater(2600);
+    },
+    fail(msg) {
+      paint(100, msg || '失败', 'err');
+      hideLater(6000);
+    },
+  };
+})();
+
 function debounce(fn, wait = 200) {
   let t;
   return (...args) => {
@@ -297,7 +350,6 @@ function debounce(fn, wait = 200) {
     t = setTimeout(() => fn(...args), wait);
   };
 }
-
 async function copyText(text) {
   try {
     await navigator.clipboard.writeText(text);
@@ -573,13 +625,20 @@ function switchView(name) {
     next.classList.remove('leaving');
     next.classList.add('active');
     $('.content').scrollTop = 0;
-    if (name === 'saves' && S.saves === null) loadSaves({ quiet: true });
-    if (name === 'packs' && !S.packHits.length) renderPackResults();
     if (name === 'content') {
-      renderContentFilters();
-      if (!S.contentHits.length) renderContentResults();
+      // 资源页现在同时承载模组 / 光影 / 材质包 / 整合包，以及详情页
+      applyContentPanels();
+      if (S.contentKind === 'modpack') {
+        if (!S.packHits.length) renderPackResults();
+      } else {
+        renderContentFilters();
+        if (!S.contentHits.length) renderContentResults();
+      }
     }
-    if (name === 'versions') refreshSizes();
+    if (name === 'versions') {
+      showVersionList();
+      refreshSizes();
+    }
   };
 
   if (prev) {
@@ -599,7 +658,6 @@ function renderAll() {
   renderDirs();
   updateUpdateBar();
   $('#navVersionCount').textContent = String(S.installed.length);
-  $('#navSaveCount').textContent = S.saves ? String(S.saves.length) : '0';
   $('#sidePlayer').textContent = S.settings.playerName || 'Steve';
   setAvatarLetter($('#avatar'), (S.settings.playerName || 'S').slice(0, 1).toUpperCase());
 }
@@ -680,6 +738,7 @@ function renderInstalled() {
         </div>
         <div class="v-actions">
           <button class="btn-sm btn-primary" data-act="launch">启动</button>
+          <button class="btn-sm" data-act="detail" title="查看这个实例的详情与存档">详情</button>
           <button class="btn-sm" data-act="mods" title="到「资源」页给这个实例装 Mod / 光影 / 材质包">装 Mod</button>
           <button class="btn-sm" data-act="listmods" title="查看这个实例已经装了哪些模组">已装模组</button>
           <button class="btn-sm" data-act="folder">目录</button>
@@ -698,6 +757,94 @@ function patchSize(key, size) {
   const el = $(`[data-size="${CSS.escape(key)}"]`);
   if (el) el.textContent = fmtBytes(size);
 }
+
+/* ------------------------------------------------------------ 实例详情（含存档） */
+
+/** 回到版本列表，收起详情 */
+function showVersionList() {
+  const list = $('#versionsListPanel');
+  const detail = $('#versionDetail');
+  if (list) list.hidden = false;
+  if (detail) {
+    detail.hidden = true;
+    detail.innerHTML = '';
+  }
+  S.detailInstance = null;
+}
+
+/**
+ * 实例详情：基本信息 + 该实例的存档。
+ * 存档从「存档」页搬到这里，按实例过滤，隔离实例与非隔离实例各取各的目录。
+ */
+function openVersionDetail(v) {
+  const list = $('#versionsListPanel');
+  const box = $('#versionDetail');
+  if (!box || !v) return;
+
+  S.detailInstance = v;
+  if (S.saves === null) loadSaves({ quiet: true }); // 后台扫描，不阻塞详情渲染
+
+  box.hidden = false;
+  if (list) list.hidden = true;
+  $('.content').scrollTop = 0;
+
+  box.innerHTML =
+    `<button class="detail-back" id="btnVerBack">← 返回版本列表</button>` +
+    `<div class="inst-head">` +
+    `<div style="flex:1;min-width:0">` +
+    `<h2 style="font-size:20px;margin-bottom:6px">${esc(v.id)}</h2>` +
+    `<div class="inst-path" title="${esc(`${v.dir}\\versions\\${v.id}`)}">${esc(
+      `${v.dir}\\versions\\${v.id}`
+    )}</div></div>` +
+    `<div style="display:flex;gap:8px;flex:0 0 auto">` +
+    `<button class="btn-sm btn-primary" id="btnVerLaunch">启动</button>` +
+    `<button class="btn-sm" id="btnVerFolder">目录</button>` +
+    `</div></div>` +
+    `<div class="detail-tags">` +
+    `<span class="chip chip-blue">${esc(v.loader || '原版')}</span>` +
+    `<span class="chip">${esc(v.mcVersion || '版本未知')}</span>` +
+    `<span class="chip">Java ${v.javaMajor}+</span>` +
+    `<span class="chip ${v.hasJar ? '' : 'chip-gold'}">${v.hasJar ? '完整' : '缺 jar'}</span>` +
+    `<span class="chip">${v.isolated ? '版本隔离' : '共用根目录'}</span>` +
+    (v.mods ? `<span class="chip">${v.mods} 个模组</span>` : '') +
+    `</div>` +
+    `<div class="inst-stats">` +
+    `<div><span>存档数量</span><b id="instSaveCount">—</b></div>` +
+    `<div><span>最近使用</span><b>${esc(fmtRelative(v.updatedAt))}</b></div>` +
+    `<div><span>版本类型</span><b>${esc(TYPE_LABEL[v.type] || v.type || '—')}</b></div>` +
+    `</div>` +
+    `<div class="inst-saves-head"><h3>存档</h3><em id="instSaveNote"></em>` +
+    `<div style="margin-left:auto;display:flex;gap:8px">` +
+    `<button class="btn-sm" id="btnVerMods">已装模组</button>` +
+    `<button class="btn-sm" id="btnVerSavesDir">打开 saves</button>` +
+    `</div></div>` +
+    `<div id="instSaveList"></div>`;
+
+  const back = $('#btnVerBack');
+  if (back) back.onclick = showVersionList;
+
+  const launch = $('#btnVerLaunch');
+  if (launch) {
+    launch.onclick = () => {
+      S.selected = keyOf(v);
+      renderPlaySelect();
+      switchView('home');
+      $('#playBtn').click();
+    };
+  }
+  const folder = $('#btnVerFolder');
+  if (folder) folder.onclick = () => api.openPath(`${v.dir}\\versions\\${v.id}`);
+  const modsBtn = $('#btnVerMods');
+  if (modsBtn) modsBtn.onclick = () => openModsModal(v);
+  const savesDir = $('#btnVerSavesDir');
+  if (savesDir) {
+    savesDir.onclick = () =>
+      api.openPath(v.isolated ? `${v.dir}\\versions\\${v.id}\\saves` : `${S.settings.mcDir}\\saves`);
+  }
+
+  renderInstanceSaves(v);
+}
+
 
 /* ------------------------------------------------------------ 已装模组 */
 const MOD_SOURCE_LABEL = {
@@ -803,8 +950,10 @@ function jumpToContentFor(v) {
   S.selected = keyOf(v);
   renderPlaySelect();
   S.contentKind = 'mod';
+  closeContentDetail();
   switchView('content');
   $$('#contentKind .seg').forEach((x) => x.classList.toggle('active', x.dataset.kind === 'mod'));
+  applyContentPanels();
   renderContentFilters();
   if (v.mcVersion) $('#contentMc').value = v.mcVersion;
   if (v.loader) {
@@ -1630,27 +1779,8 @@ async function startPackInstall(hit, ver, mcVersion) {
   };
   paint(1, '准备中…');
 
-  api.onContentProgress((p) => {
-    const bar = $('#modalBody .exp-progress');
-    if (!bar || bar.hidden) return;
-    const pct = Math.max(0, Math.min(100, p.percent || 0));
-    bar.querySelector('i').style.width = `${pct}%`;
-    bar.querySelector('span').textContent = p.message ? p.message : `${pct}%`;
-  });
-
-  api.onExportProgress((p) => {
-    const bar = $('#modalBody .exp-progress');
-    if (!bar || bar.hidden) return;
-    const pct = Math.max(0, Math.min(100, p.percent || 0));
-    bar.querySelector('i').style.width = `${pct}%`;
-    bar.querySelector('span').textContent = p.message ? p.message : `${pct}%`;
-  });
-
-  const off = api.onPack((p) => {
-    if (!p) return;
-    if (p.stage === 'error') return;
-    paint(p.percent || 0, p.message || p.stage);
-  });
+  // 进度统一走右下角那张卡（事件在 boot 里全局订阅，这里不再重复注册）
+  dockProgress.start(`${hit.title} · ${ver.number || ''}`);
 
   const r = await api.installPack({
     source: S.packSource,
@@ -1658,10 +1788,10 @@ async function startPackInstall(hit, ver, mcVersion) {
     fileName: ver.file.filename || '',
     mcVersion: mcVersion || '',
   });
-  off && off();
 
   if (!r.ok) {
     paint(0, '失败');
+    dockProgress.fail(r.error);
     toast(r.error, 'err');
     openModal({
       title: '安装失败',
@@ -1674,6 +1804,7 @@ async function startPackInstall(hit, ver, mcVersion) {
 
   const d = r.data;
   const fails = (d.failed || []).length;
+  dockProgress.done(`已装 ${d.files} 个文件`);
   openModal({
     title: '安装完成',
     sub: `${d.name} · ${d.files} 个文件`,
@@ -1704,7 +1835,7 @@ async function startPackInstall(hit, ver, mcVersion) {
 }
 
 
-/* ---------------------------------------------------------------- 资源下载（模组 / 光影 / 材质包） */
+/* ---------------------------------------------------------------- 资源下载（模组 / 光影 / 材质包 / 整合包） */
 S.contentKind = 'mod';
 S.contentHits = [];
 
@@ -1713,7 +1844,154 @@ function contentContext() {
   return S.installed.find((v) => `${v.dir}|${v.id}` === S.selected) || null;
 }
 
-/** 游戏版本下拉：正式版清单 + 实例自身的版本（可能在清单之外，例如 26.2） */
+/**
+ * 资源页三块面板的显隐：整合包 / 普通资源列表 / 详情页。
+ * 详情打开时另外两块都收起来，避免列表在下面透出来。
+ */
+function applyContentPanels() {
+  const pack = $('#contentPackPanel');
+  const list = $('#contentListPanel');
+  const detail = $('#contentDetail');
+  if (!pack || !list) return;
+  const isPack = S.contentKind === 'modpack';
+  const detailOpen = detail && !detail.hidden;
+  pack.hidden = !isPack || detailOpen;
+  list.hidden = isPack || detailOpen;
+}
+
+function closeContentDetail() {
+  const detail = $('#contentDetail');
+  if (!detail) return;
+  detail.hidden = true;
+  detail.innerHTML = '';
+  applyContentPanels();
+}
+
+/* ---------------------------------------------------------------- 资源详情页 */
+
+const CONTENT_KIND_LABEL = { mod: '模组', shader: '光影', resourcepack: '材质包', modpack: '整合包' };
+
+/** 极简 Markdown 清理：详情页只做可读排版，不解析富文本，避免引入渲染器 */
+function detailText(md) {
+  return String(md || '')
+    .replace(/\r/g, '')
+    .replace(/```[\s\S]*?```/g, '\n')
+    .replace(/```[a-zA-Z]*/g, '')
+    .replace(/`{3,}/g, '')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    .replace(/\[\[\(([^)\]]+)\)\]\]/g, '$1') // 部分项目用 [[(url)]] 这种非标准写法
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/^#{1,6}\s*/gm, '')
+    .replace(/^\s*[-*+]\s+/gm, '· ')
+    .replace(/^\s*(---|===)\s*$/gm, '')
+    .replace(/[*_`>#]/g, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
+ * 打开某个项目的详情：简介 + 可选版本列表。
+ * 版本列表沿用当前筛选（游戏版本 / 加载器），筛不到就退回全部，
+ * 否则用户挑版本时会以为项目只有这几个版本。
+ */
+async function openContentDetail(hit) {
+  const detail = $('#contentDetail');
+  if (!detail) return;
+  const kind = S.contentKind;
+  const kindLabel = CONTENT_KIND_LABEL[kind] || '资源';
+
+  detail.hidden = false;
+  applyContentPanels();
+
+  detail.innerHTML =
+    `<button class="detail-back" id="btnDetailBack">← 返回${kindLabel}列表</button>` +
+    `<div class="detail-head">` +
+    `<img class="detail-icon" src="${esc(hit.icon || '')}" alt="" />` +
+    `<div class="detail-title"><h2>${esc(hit.title)}</h2>` +
+    `<div class="detail-meta">` +
+    `<span>↓ <b>${fmtCount(hit.downloads || 0)}</b> 次下载</span>` +
+    (hit.author ? `<span>作者 <b>${esc(hit.author)}</b></span>` : '') +
+    `<span>${kindLabel}</span></div>` +
+    `<div class="detail-tags">${(hit.categories || [])
+      .slice(0, 6)
+      .map((c) => `<span class="chip">${esc(c)}</span>`)
+      .join('')}</div></div></div>` +
+    `<div class="detail-desc" id="detailDesc">${esc(hit.description || '')}</div>` +
+    `<div class="detail-sec-head">可选版本<em id="detailVerCount">正在读取…</em></div>` +
+    `<div id="detailVersions"><div class="skel-card"></div></div>`;
+
+  const back = $('#btnDetailBack');
+  if (back) back.onclick = closeContentDetail;
+
+  // 图标加载失败时不要留一个破图框
+  const icon = detail.querySelector('.detail-icon');
+  if (icon) icon.addEventListener('error', () => { icon.style.visibility = 'hidden'; });
+
+  // 正文（简介全量）与版本列表并行拉
+  const mc = $('#contentMc') ? $('#contentMc').value : '';
+  const loader = kind === 'mod' && $('#contentLoader') ? $('#contentLoader').value : '';
+
+  api.contentDetail(hit.id).then((r) => {
+    const box = $('#detailDesc');
+    if (!r.ok || !box) return;
+    const body = detailText(r.data.body);
+    if (body) box.textContent = body.length > 4000 ? `${body.slice(0, 4000)}\n…` : body;
+  });
+
+  let vs = [];
+  const r = await api.contentVersions({ kind, projectId: hit.id, mcVersion: mc, loader });
+  if (r.ok && r.data.length) {
+    vs = r.data;
+  } else {
+    const all = await api.contentVersions({ kind, projectId: hit.id, mcVersion: '', loader: '' });
+    if (all.ok) vs = all.data;
+  }
+
+  if (detail.hidden) return; // 已经退回去了，别覆盖别的页面
+  renderDetailVersions(hit, vs, r.ok && r.data.length ? '' : '当前筛选下没有匹配版本，下面是该项目的全部版本');
+}
+
+function renderDetailVersions(hit, vs, note) {
+  const box = $('#detailVersions');
+  const count = $('#detailVerCount');
+  if (!box) return;
+
+  if (!vs.length) {
+    box.innerHTML = '<div class="pack-warn">这个项目没有可下载的版本。</div>';
+    if (count) count.textContent = '0 个';
+    return;
+  }
+  if (count) count.textContent = `${vs.length} 个版本`;
+
+  const rows = vs
+    .slice(0, 80)
+    .map((v, i) => {
+      const mcs = (v.gameVersions || []).filter((x) => /^\d/.test(x)).slice(0, 2).join(' / ');
+      const loaders = (v.loaders || []).slice(0, 2).join(' / ');
+      const date = (v.date || '').slice(0, 10);
+      const tag = v.type === 'release' ? 'rel' : '';
+      return (
+        `<div class="detail-ver" data-i="${i}">` +
+        `<div class="dv-main"><b>${esc(v.number)}</b>` +
+        `<span>${[mcs, loaders, date].filter(Boolean).map((x) => esc(x)).join(' · ')}</span></div>` +
+        `<em class="${tag}">${esc(v.type || '')}</em>` +
+        `<button class="btn-sm btn-primary" data-install="${i}">安装</button>` +
+        `</div>`
+      );
+    })
+    .join('');
+
+  box.innerHTML = (note ? `<div class="pack-warn">${esc(note)}</div>` : '') + rows;
+
+  box.onclick = (e) => {
+    const btn = e.target.closest('button[data-install]');
+    if (!btn) return;
+    const v = vs[Number(btn.dataset.install)];
+    if (v) planContentInstall(hit, v);
+  };
+}
+
 function renderContentFilters() {
   const sel = $('#contentMc');
   if (!sel) return;
@@ -1832,44 +2110,6 @@ async function searchContent() {
   renderContentResults();
 }
 
-async function openContentVersions(hit) {
-  const mc = $('#contentMc').value;
-  const loader = S.contentKind === 'mod' ? $('#contentLoader').value : '';
-  const r = await api.contentVersions({ kind: S.contentKind, projectId: hit.id, mcVersion: mc, loader });
-  if (!r.ok) {
-    toast(r.error, 'err');
-    return;
-  }
-  const vs = r.data;
-  if (!vs.length) {
-    toast('没有匹配当前筛选的版本，试试放宽游戏版本或加载器', 'warn');
-    return;
-  }
-
-  const rows = vs
-    .slice(0, 60)
-    .map(
-      (v, i) => `
-      <div class="pack-ver-row" data-i="${i}">
-        <b>${esc(v.number)}</b>
-        <span>${esc((v.gameVersions || []).slice(-2).join(' / '))}</span>
-        <em>${esc(v.type)}</em>
-      </div>`
-    )
-    .join('');
-
-  openModal({
-    title: hit.title,
-    sub: `${vs.length} 个匹配版本${vs.length > 60 ? '（列出前 60 个）' : ''}`,
-    html: `<div class="pack-ver-list">${rows}</div>`,
-    buttons: [{ text: '关闭', onClick: closeModal }],
-  });
-
-  $$('#modalBody .pack-ver-row').forEach((row) => {
-    row.onclick = () => planContentInstall(hit, vs[Number(row.dataset.i)]);
-  });
-}
-
 async function planContentInstall(hit, version) {
   const cur = contentContext();
   if (!cur) {
@@ -1909,16 +2149,41 @@ async function planContentInstall(hit, version) {
   S.contentPlan = p;
   const total = p.files.reduce((n, f) => n + f.size, 0);
   const deps = p.files.filter((f) => f.dependency);
+  const depInfo = p.deps || { total: 0, installed: 0, pending: 0, unresolved: [] };
 
-  const list = p.files
-    .map(
-      (f) => `<div class="pack-ver-row">
-        <b class="ellipsis" title="${esc(f.name)}">${esc(f.name)}</b>
-        <span>${f.dependency ? '依赖' : '主文件'}</span>
-        <em>${fmtBytes(f.size)}</em>
-      </div>`
-    )
-    .join('');
+  // 前置检查：已装的不再重复列出，待下载的标出来，解析不了的单独警告
+  const pendingDeps = deps.filter((f) => !f.installed);
+  const installedDeps = deps.filter((f) => f.installed);
+  const depRows = [
+    ...pendingDeps.map(
+      (f) =>
+        `<div class="dep-row"><span class="dep-name" title="${esc(f.name)}">${esc(
+          f.title || f.name
+        )}</span><span class="dep-st">待下载 · ${fmtBytes(f.size)}</span></div>`
+    ),
+    ...installedDeps.map(
+      (f) =>
+        `<div class="dep-row ok"><span class="dep-name" title="${esc(f.name)}">${esc(
+          f.title || f.name
+        )}</span><span class="dep-st">已在实例中</span></div>`
+    ),
+    ...(depInfo.unresolved || []).map(
+      (u) =>
+        `<div class="dep-row fail"><span class="dep-name">${esc(u.name)}</span><span class="dep-st">无法自动获取</span></div>`
+    ),
+  ].join('');
+
+  const depBlock = depInfo.total
+    ? `<div class="detail-sec-head" style="margin:14px 0 0">前置检查<em>${depInfo.total} 个必需前置${
+        depInfo.pending ? `，${depInfo.pending} 个待下载` : '，均已就绪'
+      }</em></div><div class="dep-list">${depRows}</div>`
+    : S.contentKind === 'mod'
+      ? '<p class="hint" style="margin-top:12px">这个版本没有声明必需前置。</p>'
+      : '';
+
+  const unresolvedWarn = depInfo.unresolved && depInfo.unresolved.length
+    ? `<div class="pack-warn">有 ${depInfo.unresolved.length} 个前置发布方没有给出可解析的信息，安装后若启动报缺前置，需要手动去搜同名模组补上。</div>`
+    : '';
 
   openModal({
     title: '准备安装',
@@ -1929,10 +2194,10 @@ async function planContentInstall(hit, version) {
         <div class="pack-row"><span>总体积</span><b>${fmtBytes(total)}</b></div>
         <div class="pack-row"><span>安装到</span><b class="ellipsis" title="${esc(p.dir)}">${esc(p.dir)}</b></div>
       </div>
-      <div class="pack-ver-list" style="margin-top:10px">${list}</div>
+      ${depBlock}
+      ${unresolvedWarn}
       ${p.warnings.length ? `<div class="pack-warn">${p.warnings.map((w) => esc(w)).join('<br>')}</div>` : ''}
       ${p.isolated ? '' : '<div class="pack-warn">该实例未启用版本隔离，文件会装到游戏根目录，由所有实例共用。</div>'}
-      <div class="exp-progress" hidden><div class="exp-bar"><i></i></div><span>0%</span></div>
     `,
     buttons: [
       { text: '取消', onClick: closeModal },
@@ -1945,11 +2210,14 @@ async function runContentInstall(hit, version) {
   const cur = contentContext();
   if (!cur) return;
 
-  const bar = $('#modalBody .exp-progress');
-  if (bar) bar.hidden = false;
   $$('#modalFoot button').forEach((b) => {
     b.disabled = true;
   });
+  const mainBtn = $$('#modalFoot button').find((b) => b.classList.contains('btn-primary'));
+  if (mainBtn) mainBtn.textContent = '安装中…';
+
+  dockProgress.start(`${hit.title} · ${version.number}`);
+  S.contentInstalling = true;
 
   const r = await api.contentInstall({
     dir: cur.dir,
@@ -1966,7 +2234,9 @@ async function runContentInstall(hit, version) {
   });
 
   S.contentPlan = null;
+  S.contentInstalling = false;
   if (r.ok) {
+    dockProgress.done(`已装 ${r.data.installed} 个文件`);
     closeModal();
     const extra = r.data.dependencies ? `（含 ${r.data.dependencies} 个依赖）` : '';
     toast(`已安装 ${r.data.installed} 个文件${extra}`, 'ok');
@@ -1975,8 +2245,8 @@ async function runContentInstall(hit, version) {
     }
     refreshInstalledAndRender();
   } else {
+    dockProgress.fail(r.error);
     toast(r.error, 'err');
-    if (bar) bar.hidden = true;
   }
 }
 
@@ -2458,93 +2728,69 @@ function groupBy(list, keyFn) {
   return map;
 }
 
-/** 按实例（文件夹）分组：组头显示实例名、所在目录与数量 */
-function renderSavesByPack(saves) {
-  const packs = groupBy(saves, (s) => s.instanceId || '__global__');
-  const list = Array.from(packs.entries()).map(([id, items]) => ({
-    id,
-    name: id === '__global__' ? '全局存档（不属于任何实例）' : id,
-    dir: items[0].dir || '',
-    items: items.slice().sort((a, b) => (b.lastPlayed || 0) - (a.lastPlayed || 0)),
-    global: id === '__global__',
-  }));
-  list.sort((a, b) => (a.global !== b.global ? (a.global ? 1 : -1) : a.name.localeCompare(b.name, 'zh-CN')));
-
-  return list
-    .map(
-      (g) => `
-      <section class="save-group">
-        <div class="save-group-head">
-          <b>${esc(g.name)}</b>
-          <span class="save-group-path" title="${esc(g.dir)}">${esc(g.dir)}</span>
-          <em>${g.items.length} 个存档</em>
-        </div>
-        <div class="save-list">${g.items.map(saveCardHtml).join('')}</div>
-      </section>`
-    )
-    .join('');
+/** 某个实例的存档：隔离实例读自己的 saves，非隔离实例读根目录的 */
+function instanceSavesOf(v) {
+  if (!v) return [];
+  const all = S.saves || [];
+  return all.filter((s) => (v.isolated ? s.instanceId === v.id : !s.instanceId));
 }
 
-/** 按游戏版本分组 */
-function renderSavesByVersion(saves) {
-  const groups = Array.from(groupBy(saves, (s) => s.version || '未知版本').entries());
-  groups.sort((a, b) => compareVersionDesc(a[0], b[0]));
+/** 渲染实例详情里的存档区 */
+function renderInstanceSaves(v) {
+  const box = $('#instSaveList');
+  const note = $('#instSaveNote');
+  const cnt = $('#instSaveCount');
+  if (!box) return;
 
-  return groups
-    .map(
-      ([ver, items]) => `
-      <section class="save-group">
-        <div class="save-group-head">
-          <b class="save-group-ver">${esc(ver)}</b>
-          <em>${items.length} 个存档</em>
-        </div>
-        <div class="save-list">${items.map(saveCardHtml).join('')}</div>
-      </section>`
-    )
-    .join('');
-}
-
-/** 按最后游玩时间平铺 */
-function renderSavesByTime(saves) {
-  const sorted = saves.slice().sort((a, b) => (b.lastPlayed || 0) - (a.lastPlayed || 0));
-  return `<div class="save-list">${sorted.map(saveCardHtml).join('')}</div>`;
-}
-
-function renderSaves() {
-  const list = $('#saveList');
-  const empty = $('#savesEmpty');
-  const saves = S.saves || [];
-  const mode = S.settings.saveGroup || 'folder';
-
-  const totalSize = saves.reduce((n, s) => n + (s.size || 0), 0);
-  const dirs = new Set(saves.map((s) => s.dir));
-  $('#sumCount').textContent = `${saves.length} 个`;
-  $('#sumSize').textContent = fmtBytes(totalSize);
-  $('#sumDirs').textContent = `${dirs.size} 个`;
-  $('#navSaveCount').textContent = String(saves.length);
-
-  $$('#saveGroupSwitch .seg').forEach((b) => b.classList.toggle('active', b.dataset.group === mode));
-
-  if (!saves.length) {
-    list.innerHTML = '';
-    empty.hidden = false;
+  if (S.saves === null) {
+    if (note) note.textContent = '正在扫描存档…';
     return;
   }
-  empty.hidden = true;
 
-  list.innerHTML =
-    mode === 'version'
-      ? renderSavesByVersion(saves)
-      : mode === 'time'
-        ? renderSavesByTime(saves)
-        : renderSavesByPack(saves);
+  const list = instanceSavesOf(v).sort((a, b) => (b.lastPlayed || 0) - (a.lastPlayed || 0));
+  if (cnt) cnt.textContent = `${list.length} 个`;
+  if (note) {
+    note.textContent = v.isolated ? '' : '未启用版本隔离，下面显示的是游戏根目录的 saves';
+  }
+
+  box.innerHTML = list.length
+    ? `<div class="save-list">${list.map(saveCardHtml).join('')}</div>`
+    : `<div class="mod-empty"><b>这个实例还没有存档</b><p>进游戏新建一个世界，或把存档文件夹放进该实例的 <code>saves</code>。</p></div>`;
+}
+
+/** 全局存档：不属于任何实例的那些，避免并入详情后无处可看 */
+async function openGlobalSaves() {
+  if (S.saves === null) await loadSaves({ quiet: true });
+  const all = S.saves || [];
+  const orphan = all.filter((s) => !s.instanceId);
+  const body = orphan.length
+    ? `<div class="save-list">${orphan
+        .slice()
+        .sort((a, b) => (b.lastPlayed || 0) - (a.lastPlayed || 0))
+        .map(saveCardHtml)
+        .join('')}</div>`
+    : `<div class="mod-empty"><b>没有游离在实例之外的存档</b><p>共 ${all.length} 个存档都属于某个实例，在各实例的详情页里查看。</p></div>`;
+  openModal({
+    title: '全局存档',
+    sub: orphan.length ? `${orphan.length} 个不属于任何实例` : '存放于游戏根目录',
+    html: body,
+    buttons: [
+      { text: '打开 saves 目录', onClick: () => api.openPath(`${S.settings.mcDir}\\saves`) },
+      { text: '关闭', onClick: closeModal },
+    ],
+  });
 }
 
 function setSavesLoading(loading, text) {
   S.savesLoading = loading;
   const box = $('#saveProgress');
   if (box) box.hidden = !loading;
-  if (text) $('#saveProgressText').textContent = text;
+  const label = $('#saveProgressText');
+  if (text && label) label.textContent = text;
+  if (text) {
+    const note = $('#instSaveNote');
+    if (loading && note) note.textContent = text;
+  }
 }
 
 /* ---------------------------------------------------------------- 日志 */
@@ -2626,7 +2872,7 @@ async function loadSaves({ quiet = false } = {}) {
     return;
   }
   S.saves = r.data.saves;
-  renderSaves();
+  if (S.detailInstance) renderInstanceSaves(S.detailInstance);
   renderJavaSummary();
   if (!quiet) toast(`扫描完成，共 ${r.data.saves.length} 个存档`, 'ok');
 }
@@ -2949,12 +3195,20 @@ function bindEvents() {
     toast((p && p.error) || '登录失败', 'err');
   });
 
-  // 资源下载
+  // 资源下载（模组 / 光影 / 材质包 / 整合包）
   $$('#contentKind .seg').forEach((b) => {
     b.onclick = () => {
       if (S.contentKind === b.dataset.kind) return;
       S.contentKind = b.dataset.kind;
       $$('#contentKind .seg').forEach((x) => x.classList.toggle('active', x === b));
+      closeContentDetail();
+      applyContentPanels();
+      if (S.contentKind === 'modpack') {
+        // 整合包有自己的来源与筛选，复用原来的搜索流程
+        renderPackResults();
+        if (!S.packHits.length && S.packSource === 'modrinth') searchPacks();
+        return;
+      }
       S.contentHits = [];
       renderContentFilters();
       renderContentResults();
@@ -2982,7 +3236,7 @@ function bindEvents() {
     const card = e.target.closest('.pack-card');
     if (!card) return;
     const hit = S.contentHits.find((h) => h.id === card.dataset.id);
-    if (hit) openContentVersions(hit);
+    if (hit) openContentDetail(hit);
   });
 
   // 整合包商店
@@ -3048,6 +3302,8 @@ function bindEvents() {
       appendLog(`> 已切到「资源」页，搜索关键词即可给 ${v.id} 装 Mod`);
     } else if (btn.dataset.act === 'listmods') {
       openModsModal(v);
+    } else if (btn.dataset.act === 'detail') {
+      openVersionDetail(v);
     } else if (btn.dataset.act === 'remove') {
       if (!confirm(`确定删除版本 ${v.id}？会移除该实例目录，不可撤销。`)) return;
       const r = await api.remove(v.id, v.dir);
@@ -3181,14 +3437,7 @@ function bindEvents() {
     api.save({ gpuHighPerf: on });
   };
 
-  $$('#saveGroupSwitch .seg').forEach((b) => {
-    b.onclick = () => {
-      if (S.settings.saveGroup === b.dataset.group) return;
-      S.settings.saveGroup = b.dataset.group;
-      api.save({ saveGroup: b.dataset.group });
-      renderSaves();
-    };
-  });
+  // 存档已并入版本详情，原来的分组切换不再需要
 
   $('#btnPickMcDir').onclick = async () => {
     const r = await api.pickDir();
@@ -3259,29 +3508,29 @@ function bindEvents() {
     }
   });
 
-  // 存档
-  $('#btnRefreshSaves').onclick = () => {
-    S.saves = null;
-    loadSaves();
-  };
-  $('#btnOpenPrimarySaves').onclick = () => api.openPath(`${S.settings.mcDir}\\saves`);
-  $('#saveList').addEventListener('click', async (e) => {
-    const btn = e.target.closest('button[data-act]');
-    if (!btn) return;
-    const path = btn.closest('.save-card').dataset.path;
-    if (btn.dataset.act === 'reveal') {
-      api.revealSave(path);
-    } else if (btn.dataset.act === 'trash') {
-      if (!confirm(`确定删除存档？\n${path}\n\n将移动到回收站，可从回收站还原。`)) return;
-      const r = await api.trashSave(path);
-      if (r.ok) {
-        toast('存档已移至回收站', 'ok');
-        S.saves = (S.saves || []).filter((s) => s.path !== path);
-        renderSaves();
-        renderJavaSummary();
-      } else toast(r.error, 'err');
-    }
-  });
+  // 存档：现在挂在「版本管理 → 详情」里，统一在详情容器上做事件委托
+  const verDetail = $('#versionDetail');
+  if (verDetail) {
+    verDetail.addEventListener('click', async (e) => {
+      const btn = e.target.closest('button[data-act]');
+      if (!btn) return;
+      const card = btn.closest('.save-card');
+      if (!card) return;
+      const path = card.dataset.path;
+      if (btn.dataset.act === 'reveal') {
+        api.revealSave(path);
+      } else if (btn.dataset.act === 'trash') {
+        if (!confirm(`确定删除存档？\n${path}\n\n将移动到回收站，可从回收站还原。`)) return;
+        const r = await api.trashSave(path);
+        if (r.ok) {
+          toast('存档已移至回收站', 'ok');
+          S.saves = (S.saves || []).filter((s) => s.path !== path);
+          if (S.detailInstance) renderInstanceSaves(S.detailInstance);
+        } else toast(r.error, 'err');
+      }
+    });
+  }
+  if ($('#btnGlobalSaves')) $('#btnGlobalSaves').onclick = openGlobalSaves;
 
   // 日志
   $('#btnToggleLog').onclick = () => setLogOpen(false);
@@ -3363,6 +3612,12 @@ async function boot() {
   }
 
   renderAll();
+  applyContentPanels();
+
+  // 存档不再有独立页面：首屏之后在后台扫一次，首页统计与版本详情都能直接用
+  setTimeout(() => {
+    if (S.saves === null) loadSaves({ quiet: true });
+  }, 1600);
 
   // Java 探测耗时较长，放在首屏之后异步补齐
   api.detectJava().then((r) => {
@@ -3424,7 +3679,18 @@ async function boot() {
   });
 
   api.onSavesProgress(({ done, total }) => {
-    if (S.savesLoading) $('#saveProgressText').textContent = `正在读取 ${done}/${total} 个存档…`;
+    if (S.savesLoading) {
+      const el = $('#saveProgressText');
+      if (el) el.textContent = `正在读取 ${done}/${total} 个存档…`;
+    }
+  });
+
+  // 下载进度统一在右下角展示：资源安装与整合包安装共用一张卡
+  api.onContentProgress((p) => {
+    if (S.contentInstalling) dockProgress.update(p);
+  });
+  api.onPack((p) => {
+    if (p && p.stage !== 'error') dockProgress.update(p);
   });
 
   api.onVersionSize(({ key, size }) => patchSize(key, size));

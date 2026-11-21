@@ -1670,6 +1670,15 @@ function registerIpc() {
     }
   });
 
+  handle('content:detail', async (_e, { projectId } = {}) => {
+    try {
+      if (!projectId || typeof projectId !== 'string') throw new Error('缺少项目 ID');
+      return { ok: true, data: await contentLib.project(projectId) };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
   handle('content:plan', async (_e, { dir, instanceId, kind, versionId, mcVersion, loader } = {}) => {
     try {
       const gameDir = dir ? assertInGameDirs(dir, '游戏目录') : path.resolve(settingsLib.all().mcDir);

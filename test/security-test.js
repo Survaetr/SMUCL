@@ -725,6 +725,19 @@ async function invoke(channel, payload, event = goodEvent()) {
     check('未知内容类型被拒绝', threw);
   }
 
+  console.log('\n[20] N13 资源详情接口的入参校验');
+  {
+    // 详情只接受非空字符串 ID，避免被当成任意 URL / 路径入口
+    const empty = await invoke('content:detail', { projectId: '' });
+    check('空项目 ID 被拒绝', empty.ok === false);
+
+    const notString = await invoke('content:detail', { projectId: { $ne: 1 } });
+    check('非字符串项目 ID 被拒绝', notString.ok === false);
+
+    const missing = await invoke('content:detail', {});
+    check('缺少项目 ID 被拒绝', missing.ok === false);
+  }
+
   Module._load = origLoad;
 
   console.log(`\n===== 结果：${passed} 通过，${failures.length} 失败 =====`);

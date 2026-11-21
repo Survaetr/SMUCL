@@ -167,7 +167,7 @@ async function getVersion(versionId) {
  * 只在 mod 类型下做：光影/材质包的 dependencies 一般是空的，
  * 即使有也不是「装到同目录」这种语义。
  */
-async function collectDeps(rootVersion, ctx, seen, out, depth = 0) {
+async function collectDeps(rootVersion, ctx, seen, out, depth = 0, failed = []) {
   if (depth > 5 || out.length >= 12) return;
   const deps = (rootVersion.dependencies || []).filter((d) => d.dependency_type === 'required');
   if (!deps.length) return;
@@ -198,12 +198,20 @@ async function collectDeps(rootVersion, ctx, seen, out, depth = 0) {
     );
   }
 
+  // 只有 modId、没有版本号或项目 ID 的必需依赖无法自动解析，
+  // 记下来交给界面提示，别让用户在启动时才发现缺前置（JEI 27.x 就是这种情况）
+  for (const d of deps) {
+    if (!d.version_id && !d.project_id) {
+      failed.push({ name: d.file_name || d.mod_id || '未标注名称的前置', reason: '发布方只写了 modId，无法自动定位' });
+    }
+  }
+
   const got = await Promise.all(pending);
   for (const v of got) {
     if (v && v.file) out.push(v);
   }
   for (const v of got) {
-    if (v && v.file) await collectDeps(v, ctx, seen, out, depth + 1);
+    if (v && v.file) await collectDeps(v, ctx, seen, out, depth + 1, failed);
   }
 }
 
@@ -258,27 +266,35 @@ async function plan({ gameDir, instanceId, kind, versionId, mcVersion = '', load
     warnings.push(`该文件标注支持 ${root.gameVersions.join(' / ')}，与当前实例的 ${mcVersion} 不一致`);
   }
 
+  // 目标目录里已有的文件名：用来判断某个前置是不是已经装过，避免重复下载
+  const present = existingFiles(target.dir);
+  const deps = [];
+  const unresolved = [];
+
   if (kind === 'mod') {
-    const deps = [];
     try {
-      await collectDeps(root, { mcVersion, loader }, new Set([versionId]), deps);
+      await collectDeps(root, { mcVersion, loader }, new Set([versionId]), deps, 0, unresolved);
     } catch (e) {
       warnings.push(`依赖解析失败：${e.message}`);
     }
     for (const d of deps) {
+      const name = d.file.filename;
       files.push({
-        name: d.file.filename,
+        name,
         url: d.file.url,
         sha1: d.file.sha1,
         size: d.file.size,
         title: d.name || d.number,
         dependency: true,
+        // 同名文件已在目录里，说明这个前置装过了
+        installed: present.has(name.toLowerCase()),
       });
     }
   }
 
   for (const f of files) assertFileSafe(f);
 
+  const depFiles = files.filter((f) => f.dependency);
   return {
     dir: target.dir,
     isolated: target.isolated,
@@ -286,6 +302,44 @@ async function plan({ gameDir, instanceId, kind, versionId, mcVersion = '', load
     rootVersion: { id: root.id, number: root.number, name: root.name, type: root.type },
     files,
     warnings,
+    // 前置检查结果：已装 / 待下载 / 无法解析，界面据此给提示
+    deps: {
+      total: depFiles.length + unresolved.length,
+      installed: depFiles.filter((f) => f.installed).length,
+      pending: depFiles.filter((f) => !f.installed).length,
+      unresolved,
+    },
+  };
+}
+
+/** 目录里已存在的文件名（小写），读不到就当空 */
+function existingFiles(dir) {
+  try {
+    return new Set(fs.readdirSync(dir).map((s) => String(s).toLowerCase()));
+  } catch {
+    return new Set();
+  }
+}
+
+/** 项目详情：简介正文、分类、链接，供详情页展示 */
+async function project(id) {
+  const p = await net.fetchJson(`${API}/project/${encodeURIComponent(id)}`, { timeout: 20000 });
+  return {
+    id: p.id,
+    slug: p.slug,
+    title: p.title,
+    description: p.description || '',
+    body: p.body || '',
+    icon: p.icon_url || '',
+    downloads: p.downloads || 0,
+    followers: p.followers || 0,
+    categories: p.categories || [],
+    loaders: p.loaders || [],
+    gameVersions: p.game_versions || [],
+    license: (p.license || {}).id || '',
+    sourceUrl: p.source_url || '',
+    issuesUrl: p.issues_url || '',
+    updated: p.updated || '',
   };
 }
 
@@ -372,4 +426,4 @@ async function install({
   }
 }
 
-module.exports = { search, versions, plan, install, familyOf };
+module.exports = { search, versions, plan, install, project, familyOf };

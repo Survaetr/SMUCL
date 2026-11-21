@@ -9,7 +9,7 @@
 [![Electron](https://img.shields.io/badge/Electron-45-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6?logo=windows&logoColor=white)](#)
 [![License](https://img.shields.io/badge/license-MIT-3DA639)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.4.0-3b7dd8](#)
+[![Version](https://img.shields.io/badge/version-2.5.0-3b7dd8](#)
 [![Release](https://img.shields.io/github/v/release/Survaetr/SMUCL?label=release&color=3DA639)](https://github.com/Survaetr/SMUCL/releases)
 
 </div>
@@ -19,7 +19,7 @@
 > 仓库页绿色的 `Code → Download ZIP` 拿到的是源码，解压后只有 `main.js`、`core/`、`build/` 这些文件，
 > **没有 `SMUCL.exe`**，要装 Node.js 才能跑。
 >
-> 免安装版直链：[**SMUCL-2.4.0-portable.zip**](https://github.com/Survaetr/SMUCL/releases/download/v2.4.0/SMUCL-2.4.0-portable.zip)（142 MB，解压后双击 `SMUCL.exe`）
+> 免安装版直链：[**SMUCL-2.5.0-portable.zip**](https://github.com/Survaetr/SMUCL/releases/download/v2.5.0/SMUCL-2.5.0-portable.zip)（142 MB，解压后双击 `SMUCL.exe`）
 > ·
 > 国内网盘：[夸克网盘](https://pan.quark.cn/s/a054da815452)
 > ·
@@ -161,6 +161,14 @@ SMUCL/
 https://survaetr.github.io/SMUCL/ （GitHub Pages，内容放在 `gh-pages` 分支根目录）。
 
 ## 更新记录
+
+**v2.5.0**（2026-11-22）详情页、前置检查与界面归并
+
+- 模组 / 光影 / 材质包可点开详情页，查看简介与全部可选版本，挑好直接装
+- 下载前自动检查前置：已装、待下载、无法解析三类分开标注
+- 下载进度改为右下角常驻卡片，显示百分比与当前文件
+- 整合包并入「资源」页作为第四个分类
+- 存档并入版本管理里每个实例的详情页，版本卡新增「详情」入口
 
 **v2.4.0**（2026-11-21）光影与材质包的版本匹配
 

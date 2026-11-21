@@ -54,6 +54,7 @@ contextBridge.exposeInMainWorld('smucl', {
   onExportProgress: (cb) => on('pack:exportProgress', cb),
   contentSearch: (payload) => ipcRenderer.invoke('content:search', payload),
   contentVersions: (payload) => ipcRenderer.invoke('content:versions', payload),
+  contentDetail: (projectId) => ipcRenderer.invoke('content:detail', { projectId }),
   contentPlan: (payload) => ipcRenderer.invoke('content:plan', payload),
   contentInstall: (payload) => ipcRenderer.invoke('content:install', payload),
   onContentProgress: (cb) => on('content:progress', cb),

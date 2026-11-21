@@ -68,18 +68,9 @@
             <span>下载游戏</span>
             <i class="nav-dot" id="navUpdateDot" hidden></i>
           </button>
-          <button class="nav-item" data-view="packs">
-            <svg viewBox="0 0 24 24"><path d="M3.5 8.5 12 4l8.5 4.5v7L12 20l-8.5-4.5z" /><path d="M3.5 8.5 12 13l8.5-4.5" /><path d="M12 13v7" /><path d="M7.7 6.2 16.3 11" /></svg>
-            <span>整合包</span>
-          </button>
           <button class="nav-item" data-view="content">
             <svg viewBox="0 0 24 24"><path d="M12 3.2 20 7.6v8.8L12 20.8 4 16.4V7.6z" /><path d="M4 7.6 12 12l8-4.4" /><path d="M12 12v8.8" /><path d="M9.6 5.4 17.6 9.8" /></svg>
             <span>资源</span>
-          </button>
-          <button class="nav-item" data-view="saves">
-            <svg viewBox="0 0 24 24"><path d="M4 7.5 12 4l8 3.5v9L12 20l-8-3.5z" /><path d="M4 7.5 12 11l8-3.5" /><path d="M12 11v9" /></svg>
-            <span>存档</span>
-            <em id="navSaveCount">0</em>
           </button>
           <button class="nav-item" data-view="settings">
             <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" /><path d="M12 2.8v2.6M12 18.6v2.6M4.5 12H2M22 12h-2.5M6.2 6.2 4.4 4.4M19.6 19.6l-1.8-1.8M17.8 6.2l1.8-1.8M4.4 19.6l1.8-1.8" /></svg>
@@ -97,7 +88,7 @@
             <span class="badge-offline" id="sideModeChip">本地</span>
           </div>
           <button class="update-pill" id="updatePill" hidden>发现新版本</button>
-          <div class="side-hint">SMUCL v1.9.3 · 基于 Electron</div>
+          <div class="side-hint" id="sideVersion">SMUCL · 基于 Electron</div>
         </div>
       </aside>
 
@@ -213,23 +204,29 @@
 
         <!-- ---------- 版本管理 ---------- -->
         <section class="view" id="view-versions">
-          <div class="view-head">
-            <div>
-              <h1>版本管理</h1>
+          <div id="versionsListPanel">
+            <div class="view-head">
+              <div>
+                <h1>版本管理</h1>
+              </div>
+              <div class="head-actions">
+                <button class="btn-sm" id="btnGlobalSaves">全局存档</button>
+                <button class="btn-sm" id="btnImportPack">导入整合包</button>
+                <button class="btn-sm" id="btnRefreshInstalled">刷新</button>
+                <button class="btn-sm" id="btnOpenVersionsDir">打开 versions 目录</button>
+              </div>
             </div>
-            <div class="head-actions">
-              <button class="btn-sm" id="btnImportPack">导入整合包</button>
-              <button class="btn-sm" id="btnRefreshInstalled">刷新</button>
-              <button class="btn-sm" id="btnOpenVersionsDir">打开 versions 目录</button>
+            <div class="version-grid" id="versionGrid"></div>
+            <div class="empty" id="versionsEmpty" hidden>
+              <img class="pixel" src="../assets/logo-mc-128.png" alt="" />
+              <b>还没有安装任何版本</b>
+              <p>前往「下载游戏」选择一个版本开始安装。</p>
+              <button class="mc-btn small" id="btnEmptyGoDownload"><span class="mc-btn-face">去下载</span></button>
             </div>
           </div>
-          <div class="version-grid" id="versionGrid"></div>
-          <div class="empty" id="versionsEmpty" hidden>
-            <img class="pixel" src="../assets/logo-mc-128.png" alt="" />
-            <b>还没有安装任何版本</b>
-            <p>前往「下载游戏」选择一个版本开始安装。</p>
-            <button class="mc-btn small" id="btnEmptyGoDownload"><span class="mc-btn-face">去下载</span></button>
-          </div>
+
+          <!-- 实例详情：基本信息 + 该实例的存档 -->
+          <div id="versionDetail" hidden></div>
         </section>
 
         <!-- ---------- 下载 ---------- -->
@@ -291,35 +288,7 @@
           </div>
         </section>
 
-        <!-- ---------- 整合包 ---------- -->
-        <section class="view" id="view-packs">
-          <div class="view-head">
-            <div>
-              <h1>整合包</h1>
-            </div>
-            <div class="segmented" id="packSource">
-              <button class="seg active" data-source="modrinth">Modrinth</button>
-              <button class="seg" data-source="curseforge">CurseForge</button>
-            </div>
-          </div>
-
-          <div class="toolbar">
-            <input class="input search" id="packSearch" placeholder="搜索整合包，例如 Fabulously Optimized" />
-            <div class="toolbar-right">
-              <button class="btn-sm primary" id="btnPackSearch">搜索</button>
-            </div>
-          </div>
-
-          <div class="pack-notice" id="packNotice" hidden></div>
-          <div class="pack-grid" id="packGrid"></div>
-          <div class="empty" id="packEmpty" hidden>
-            <img class="pixel" src="../assets/logo-mc-128.png" alt="" />
-            <b id="packEmptyTitle">还没有搜索</b>
-            <p id="packEmptyText">输入关键词后点搜索，结果会显示在这里。</p>
-          </div>
-        </section>
-
-        <!-- ---------- 资源（模组 / 光影 / 材质包） ---------- -->
+        <!-- ---------- 资源（模组 / 光影 / 材质包 / 整合包） ---------- -->
         <section class="view" id="view-content">
           <div class="view-head">
             <div>
@@ -329,88 +298,82 @@
               <button class="seg active" data-kind="mod">模组</button>
               <button class="seg" data-kind="shader">光影</button>
               <button class="seg" data-kind="resourcepack">材质包</button>
+              <button class="seg" data-kind="modpack">整合包</button>
             </div>
           </div>
 
-          <div class="toolbar">
-            <input class="input search" id="contentSearch" placeholder="搜索项目，例如 sodium、Complementary" />
-            <div class="toolbar-right">
-              <button class="btn-sm primary" id="btnContentSearch">搜索</button>
-            </div>
-          </div>
-
-          <div class="content-filters">
-            <label class="filter-field">
-              <span>游戏版本</span>
-              <select id="contentMc"></select>
-            </label>
-            <label class="filter-field" id="contentLoaderWrap">
-              <span>加载器</span>
-              <select id="contentLoader">
-                <option value="">不限</option>
-                <option value="Fabric">Fabric</option>
-                <option value="NeoForge">NeoForge</option>
-                <option value="Forge">Forge</option>
-                <option value="Quilt">Quilt</option>
-              </select>
-            </label>
-            <label class="filter-field">
-              <span>排序</span>
-              <select id="contentSort">
-                <option value="relevance">相关度</option>
-                <option value="downloads">下载量</option>
-                <option value="follows">收藏数</option>
-                <option value="newest">最新发布</option>
-              </select>
-            </label>
-            <label class="filter-field content-target">
-              <span>安装到</span>
-              <select id="contentTarget"></select>
-            </label>
-          </div>
-
-          <div class="pack-notice info" id="contentNotice" hidden></div>
-
-          <div class="pack-grid" id="contentGrid"></div>
-          <div class="empty" id="contentEmpty" hidden>
-            <img class="pixel" src="../assets/logo-mc-128.png" alt="" />
-            <b id="contentEmptyTitle">还没有搜索</b>
-            <p id="contentEmptyText">输入关键词后点搜索，结果会显示在这里。</p>
-          </div>
-        </section>
-
-        <!-- ---------- 存档 ---------- -->
-        <section class="view" id="view-saves">
-          <div class="view-head">
-            <div>
-              <h1>存档</h1>
-            </div>
-            <div class="head-actions">
-              <div class="segmented" id="saveGroupSwitch">
-                <button class="seg active" data-group="folder">按文件夹</button>
-                <button class="seg" data-group="version">按版本</button>
-                <button class="seg" data-group="time">按时间</button>
+          <!-- 整合包面板：沿用原有 id，搜索与安装逻辑不变 -->
+          <div id="contentPackPanel" hidden>
+            <div class="pack-notice" id="packNotice" hidden></div>
+            <div class="toolbar">
+              <input class="input search" id="packSearch" placeholder="搜索整合包，例如 Fabulously Optimized" />
+              <div class="toolbar-right">
+                <div class="segmented" id="packSource">
+                  <button class="seg active" data-source="modrinth">Modrinth</button>
+                  <button class="seg" data-source="curseforge">CurseForge</button>
+                </div>
+                <button class="btn-sm primary" id="btnPackSearch">搜索</button>
               </div>
-              <button class="btn-sm" id="btnRefreshSaves">重新扫描</button>
-              <button class="btn-sm" id="btnOpenPrimarySaves">打开主目录 saves</button>
+            </div>
+            <div class="pack-grid" id="packGrid"></div>
+            <div class="empty" id="packEmpty" hidden>
+              <img class="pixel" src="../assets/logo-mc-128.png" alt="" />
+              <b id="packEmptyTitle">还没有搜索</b>
+              <p id="packEmptyText">输入关键词后点搜索，结果会显示在这里。</p>
             </div>
           </div>
 
-          <div class="saves-summary" id="savesSummary">
-            <div class="sum-item"><span>存档数量</span><b id="sumCount">—</b></div>
-            <div class="sum-item"><span>占用空间</span><b id="sumSize">—</b></div>
-            <div class="sum-item"><span>来源目录</span><b id="sumDirs">—</b></div>
-            <div class="sum-progress" id="saveProgress" hidden>
-              <span class="spinner"></span><span id="saveProgressText">正在扫描…</span>
+          <!-- 普通资源列表 -->
+          <div id="contentListPanel">
+            <div class="toolbar">
+              <input class="input search" id="contentSearch" placeholder="搜索项目，例如 sodium、Complementary" />
+              <div class="toolbar-right">
+                <button class="btn-sm primary" id="btnContentSearch">搜索</button>
+              </div>
+            </div>
+
+            <div class="content-filters">
+              <label class="filter-field">
+                <span>游戏版本</span>
+                <select id="contentMc"></select>
+              </label>
+              <label class="filter-field" id="contentLoaderWrap">
+                <span>加载器</span>
+                <select id="contentLoader">
+                  <option value="">不限</option>
+                  <option value="Fabric">Fabric</option>
+                  <option value="NeoForge">NeoForge</option>
+                  <option value="Forge">Forge</option>
+                  <option value="Quilt">Quilt</option>
+                </select>
+              </label>
+              <label class="filter-field">
+                <span>排序</span>
+                <select id="contentSort">
+                  <option value="relevance">相关度</option>
+                  <option value="downloads">下载量</option>
+                  <option value="follows">收藏数</option>
+                  <option value="newest">最新发布</option>
+                </select>
+              </label>
+              <label class="filter-field content-target">
+                <span>安装到</span>
+                <select id="contentTarget"></select>
+              </label>
+            </div>
+
+            <div class="pack-notice info" id="contentNotice" hidden></div>
+
+            <div class="pack-grid" id="contentGrid"></div>
+            <div class="empty" id="contentEmpty" hidden>
+              <img class="pixel" src="../assets/logo-mc-128.png" alt="" />
+              <b id="contentEmptyTitle">还没有搜索</b>
+              <p id="contentEmptyText">输入关键词后点搜索，结果会显示在这里。</p>
             </div>
           </div>
 
-          <div class="save-groups" id="saveList"></div>
-          <div class="empty" id="savesEmpty" hidden>
-            <img class="pixel" src="../assets/logo-mc-128.png" alt="" />
-            <b>没有找到存档</b>
-            <p>存档通常位于 <code>.minecraft/saves</code> 或各实例目录下的 <code>saves</code>。</p>
-          </div>
+          <!-- 详情页：点卡片进入，展示简介与版本列表 -->
+          <div id="contentDetail" hidden></div>
         </section>
 
         <!-- ---------- 设置 ---------- -->
@@ -708,6 +671,12 @@
     </button>
 
     <div class="toasts" id="toasts"></div>
+    <!-- 下载进度：右下角常驻卡片，显示百分比 -->
+    <div class="progress-dock" id="progressDock" hidden>
+      <div class="pd-head"><b id="pdTitle">正在下载</b><em id="pdPct">0%</em></div>
+      <div class="pd-bar"><i id="pdFill"></i></div>
+      <div class="pd-sub" id="pdSub"></div>
+    </div>
   </div>
 
   <!-- ============ 通用弹窗（更新提示 / 更新日志） ============ -->
