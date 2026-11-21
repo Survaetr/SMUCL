@@ -8,6 +8,7 @@ const { pathToFileURL } = require('url');
 const settingsLib = require('./core/settings');
 const javaLib = require('./core/java');
 const jreLib = require('./core/jre');
+const modsLib = require('./core/mods');
 const versionLib = require('./core/version');
 const installer = require('./core/install');
 const launcher = require('./core/launch');
@@ -853,6 +854,54 @@ function registerIpc() {
       ok: true,
       data: `"${built.java}" ${built.args.map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ')}`,
     };
+  });
+
+  // ---------------- 实例已装模组 ----------------
+  /**
+   * 定位某个实例真正会加载的 mods 目录。
+   * 版本隔离时是 <实例>/mods，否则是 <游戏目录>/mods —— 必须和启动时的判断一致。
+   */
+  const instanceModsDir = (id, dir) => {
+    const verId = safe.assertVersionId(id);
+    const root = dir ? assertInGameDirs(dir, '游戏目录') : settingsLib.all().mcDir;
+    const instDir = safe.safeJoin(path.join(root, 'versions'), verId);
+    const modsDir = dirsLib.isIsolatedInstance(instDir)
+      ? safe.safeJoin(instDir, 'mods')
+      : safe.safeJoin(root, 'mods');
+    return { verId, root, instDir, modsDir };
+  };
+
+  handle('mods:list', async (_e, { id, dir } = {}) => {
+    const { modsDir } = instanceModsDir(id, dir);
+    return { ok: true, data: modsLib.list(modsDir) };
+  });
+
+  handle('mods:toggle', async (_e, { id, dir, file, enabled } = {}) => {
+    const { modsDir } = instanceModsDir(id, dir);
+    const next = modsLib.toggle(modsDir, file, enabled);
+    return { ok: true, data: { file: next, enabled: Boolean(enabled) } };
+  });
+
+  /** 删除走系统回收站，可恢复；不做不可逆的硬删除 */
+  handle('mods:trash', async (_e, { id, dir, file } = {}) => {
+    const { modsDir } = instanceModsDir(id, dir);
+    const name = modsLib.assertModFile(file);
+    const full = safe.safeJoin(modsDir, name);
+    if (!fs.existsSync(full)) throw new Error('模组文件不存在');
+    await shell.trashItem(full);
+    return { ok: true };
+  });
+
+  handle('mods:reveal', async (_e, { id, dir, file } = {}) => {
+    const { modsDir } = instanceModsDir(id, dir);
+    if (file) {
+      const name = modsLib.assertModFile(file);
+      shell.showItemInFolder(safe.safeJoin(modsDir, name));
+    } else {
+      fs.mkdirSync(modsDir, { recursive: true });
+      await shell.openPath(modsDir);
+    }
+    return { ok: true };
   });
 
   // ---------------- 正版登录 ----------------

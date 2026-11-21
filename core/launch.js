@@ -218,6 +218,14 @@ function build(id, options = {}) {
   // 版本隔离：mods / config / saves 在实例目录内时，--gameDir 必须指向实例目录
   const isolated = require('./dirs').isIsolatedInstance(instanceDir);
   const gameDir = isolated ? instanceDir : mcDir;
+
+  // 第一次进游戏就是中文界面，并关掉会朗读菜单的复述功能。
+  // 只补缺失的键：玩家自己在游戏里改过的设置不会被覆盖。
+  try {
+    require('./options').ensureDefaults(gameDir);
+  } catch {
+    /* 写不进去不影响启动 */
+  }
   const nativesDir = resolveNativesDir(instanceDir);
 
   const clientJar = resolveClientJar(mcDir, id, meta);

@@ -603,6 +603,107 @@ async function invoke(channel, payload, event = goodEvent()) {
     })());
   }
 
+  console.log('\n[17] N10 已装模组与实例默认设置');
+  {
+    const modsLib = require(path.join(ROOT, 'core', 'mods'));
+    const optLib = require(path.join(ROOT, 'core', 'options'));
+
+    // 造三个真假 jar：Fabric 元数据 / Forge mods.toml / 完全读不出的（无元数据）
+    const modsDir = path.join(TMP, 'inst', 'mods');
+    mkdir(modsDir);
+
+    const makeJar = (name, entries) => {
+      const z = new AdmZip();
+      for (const [p, body] of Object.entries(entries)) z.addFile(p, Buffer.from(body, 'utf8'));
+      z.writeZip(path.join(modsDir, name));
+    };
+    makeJar('sodium-fabric-0.5.8.jar', {
+      'fabric.mod.json': JSON.stringify({ id: 'sodium', name: 'Sodium', version: '0.5.8' }),
+    });
+    makeJar('jei-1.20.1.jar', {
+      'META-INF/mods.toml':
+        'modLoader="javafml"\n[[mods]]\nmodId="jei"\ndisplayName="Just Enough Items"\nversion="${file.jarVersion}"\n',
+      'META-INF/MANIFEST.MF': 'Manifest-Version: 1.0\nImplementation-Version: 15.2.0.27\n',
+    });
+    makeJar('mystery.jar', { 'readme.txt': 'nothing useful' });
+    // 禁用的那份也要能被列出来
+    fs.renameSync(path.join(modsDir, 'mystery.jar'), path.join(modsDir, 'mystery.jar.disabled'));
+
+    const got = modsLib.list(modsDir);
+    check('能列出 mods 目录里的全部 jar', got.total === 3, `实际 ${got.total}`);
+    check('启用的只有 2 个（.disabled 不计）', got.enabled === 2, `实际 ${got.enabled}`);
+
+    const byId = Object.fromEntries(got.mods.map((m) => [m.id || m.name, m]));
+    check('Fabric 元数据读出名称与版本', byId.sodium && byId.sodium.name === 'Sodium' && byId.sodium.version === '0.5.8');
+    check(
+      'Forge mods.toml 读出名称，占位符版本用 MANIFEST 补全',
+      byId.jei && byId.jei.name === 'Just Enough Items' && byId.jei.version === '15.2.0.27',
+      JSON.stringify(byId.jei || null)
+    );
+    check('读不到元数据的 jar 退回文件名而不是崩掉', byId.mystery && byId.mystery.disabled === true);
+
+    // 目录不存在的实例不应抛异常
+    const none = modsLib.list(path.join(TMP, 'no-mods-dir'));
+    check('mods 目录不存在时返回空列表', none.exists === false && none.total === 0);
+
+    // 文件名是唯一的外部输入，必须挡住穿越
+    let blocked = true;
+    for (const bad of ['../../evil.jar', 'a/b.jar', 'C:\\evil.jar', '', '.hidden.jar', 'x.txt', 'a".jar']) {
+      try {
+        modsLib.assertModFile(bad);
+        blocked = false;
+        console.log('  未被拒绝:', JSON.stringify(bad));
+      } catch {}
+    }
+    check('越界或非法的模组文件名被拒绝', blocked);
+
+    // 启用/禁用只改扩展名，内容不动
+    const before = fs.readFileSync(path.join(modsDir, 'sodium-fabric-0.5.8.jar')).length;
+    const off = modsLib.toggle(modsDir, 'sodium-fabric-0.5.8.jar', false);
+    check('禁用后扩展名变成 .disabled', off === 'sodium-fabric-0.5.8.jar.disabled');
+    const on = modsLib.toggle(modsDir, off, true);
+    check('启用后扩展名恢复', on === 'sodium-fabric-0.5.8.jar');
+    check(
+      '启用/禁用不改动文件内容',
+      fs.readFileSync(path.join(modsDir, 'sodium-fabric-0.5.8.jar')).length === before
+    );
+
+    // options.txt：只补缺失键，不覆盖玩家自己的选择
+    const gdir = path.join(TMP, 'optgame');
+    mkdir(gdir);
+    const first = optLib.ensureDefaults(gdir);
+    const text1 = fs.readFileSync(path.join(gdir, 'options.txt'), 'utf8');
+    check('首次启动写入 lang 与 narrator', first.created === true && /lang:zh_cn/.test(text1) && /narrator:0/.test(text1));
+
+    const again = optLib.ensureDefaults(gdir);
+    check('重复启动不再重复追加', again.added.length === 0);
+
+    fs.writeFileSync(path.join(gdir, 'options.txt'), 'lang:en_us\nfov:0.5\n', 'utf8');
+    const third = optLib.ensureDefaults(gdir);
+    const text3 = fs.readFileSync(path.join(gdir, 'options.txt'), 'utf8');
+    check('玩家自己选的英文不会被改回中文', /lang:en_us/.test(text3) && !/lang:zh_cn/.test(text3));
+    check('缺失的 narrator 仍然补上', third.added.join(',') === 'narrator' && /narrator:0/.test(text3));
+    check('原有其它设置原样保留', /fov:0\.5/.test(text3));
+  }
+
+  console.log('\n[18] N11 旧配置里的日志开关迁移');
+  {
+    const settingsLib = require(path.join(ROOT, 'core', 'settings'));
+    const cfg = path.join(USER_DATA, 'smucl-config.json');
+
+    // 旧版 save() 会把默认值整份写盘，所以老配置里常见 showLog:true 这种「被带出来」的值。
+    // 模拟一份这样的配置，重新加载后必须被迁成「收起」。
+    fs.writeFileSync(cfg, JSON.stringify({ showLog: true }), 'utf8');
+    settingsLib.init();
+    check('旧配置里的 showLog:true 被迁成收起', settingsLib.all().showLog === false);
+    check('迁移标记已置位，不会反复生效', settingsLib.all().logDefaultMigrated === true);
+
+    // 迁移之后用户主动打开，必须被尊重
+    settingsLib.save({ showLog: true });
+    const disk = JSON.parse(fs.readFileSync(cfg, 'utf8'));
+    check('迁移后用户主动开启日志会被保留', disk.showLog === true && disk.logDefaultMigrated === true);
+  }
+
   Module._load = origLoad;
 
   console.log(`\n===== 结果：${passed} 通过，${failures.length} 失败 =====`);

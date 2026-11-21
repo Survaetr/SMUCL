@@ -681,6 +681,7 @@ function renderInstalled() {
         <div class="v-actions">
           <button class="btn-sm btn-primary" data-act="launch">启动</button>
           <button class="btn-sm" data-act="mods" title="到「资源」页给这个实例装 Mod / 光影 / 材质包">装 Mod</button>
+          <button class="btn-sm" data-act="listmods" title="查看这个实例已经装了哪些模组">已装模组</button>
           <button class="btn-sm" data-act="folder">目录</button>
           <button class="btn-sm" data-act="copy">命令</button>
           <button class="btn-sm" data-act="export">导出</button>
@@ -696,6 +697,123 @@ function renderInstalled() {
 function patchSize(key, size) {
   const el = $(`[data-size="${CSS.escape(key)}"]`);
   if (el) el.textContent = fmtBytes(size);
+}
+
+/* ------------------------------------------------------------ 已装模组 */
+const MOD_SOURCE_LABEL = {
+  fabric: 'Fabric',
+  quilt: 'Quilt',
+  forge: 'Forge',
+  neoforge: 'NeoForge',
+  manifest: '未知加载器',
+  unknown: '读不到元数据',
+};
+
+/**
+ * 列出某个实例 mods 目录里的模组。
+ * 名称与版本来自 jar 内元数据，不是文件名 —— 文件名经常是
+ * `sodium-fabric-0.5.8+mc1.20.1.jar` 这种，对用户没有意义。
+ */
+async function openModsModal(v) {
+  const r = await api.modsList(v.id, v.dir);
+  if (!r.ok) {
+    toast(r.error, 'err');
+    return;
+  }
+  const d = r.data || {};
+  const mods = d.mods || [];
+
+  const rows = mods
+    .map((m) => {
+      const label = MOD_SOURCE_LABEL[m.source] || m.source || '未知';
+      const ver = m.version ? `v${esc(m.version)}` : '版本未知';
+      const sub = `${m.id ? `${esc(m.id)} · ` : ''}${label} · ${esc(m.file)}`;
+      return (
+        `<div class="mod-row${m.disabled ? ' off' : ''}">` +
+        `<div class="m-main"><b>${esc(m.name)}</b><span title="${esc(m.file)}">${sub}</span></div>` +
+        `<span class="chip">${ver}</span>` +
+        `<button class="btn-sm" data-mod="toggle" data-file="${esc(m.file)}" data-on="${m.disabled ? '0' : '1'}">` +
+        `${m.disabled ? '启用' : '禁用'}</button>` +
+        `<button class="btn-sm" data-mod="reveal" data-file="${esc(m.file)}">定位</button>` +
+        `<button class="btn-sm btn-danger" data-mod="trash" data-file="${esc(m.file)}">移除</button>` +
+        `</div>`
+      );
+    })
+    .join('');
+
+  const empty =
+    `<div class="mod-empty"><b>这个实例还没有装模组</b>` +
+    `<p>mods 目录是空的。点下面的「去装模组」可以到「资源」页搜索，或者手动把 jar 放进目录。</p></div>`;
+
+  const head =
+    `<p class="hint" style="margin:0 0 10px">共 <b>${d.total || 0}</b> 个文件，` +
+    `<b>${d.enabled || 0}</b> 个启用。禁用只是改扩展名，游戏不会加载，随时可以恢复。</p>`;
+
+  openModal({
+    title: `已装模组 · ${v.id}`,
+    sub: d.modsDir || '',
+    html: head + (mods.length ? `<div class="mod-list">${rows}</div>` : empty),
+    buttons: [
+      { text: '打开 mods 目录', onClick: () => api.modsReveal(v.id, v.dir) },
+      { text: '去装模组', primary: true, onClick: () => { closeModal(); jumpToContentFor(v); } },
+      { text: '关闭', onClick: closeModal },
+    ],
+  });
+
+  // openModal 每次重设 innerHTML，用 onclick 赋值可避免监听器累积
+  $('#modalBody').onclick = async (e) => {
+    const btn = e.target.closest('button[data-mod]');
+    if (!btn) return;
+    const file = btn.dataset.file;
+    const act = btn.dataset.mod;
+
+    if (act === 'toggle') {
+      const enable = btn.dataset.on === '0';
+      const res = await api.modsToggle(v.id, v.dir, file, enable);
+      if (!res.ok) {
+        toast(res.error, 'err');
+        return;
+      }
+      toast(enable ? '已启用' : '已禁用', 'ok');
+      await openModsModal(v);
+      return;
+    }
+
+    if (act === 'reveal') {
+      await api.modsReveal(v.id, v.dir, file);
+      return;
+    }
+
+    if (act === 'trash') {
+      if (!confirm(`把 ${file} 移到回收站？\n\n回收站里可以恢复。`)) return;
+      const res = await api.modsTrash(v.id, v.dir, file);
+      if (!res.ok) {
+        toast(res.error, 'err');
+        return;
+      }
+      toast('已移到回收站', 'ok');
+      await openModsModal(v);
+      await refreshInstalledAndRender();
+    }
+  };
+}
+
+/** 版本卡「装 Mod」按钮原本的逻辑，抽出来给模组弹窗复用 */
+function jumpToContentFor(v) {
+  S.selected = keyOf(v);
+  renderPlaySelect();
+  S.contentKind = 'mod';
+  switchView('content');
+  $$('#contentKind .seg').forEach((x) => x.classList.toggle('active', x.dataset.kind === 'mod'));
+  renderContentFilters();
+  if (v.mcVersion) $('#contentMc').value = v.mcVersion;
+  if (v.loader) {
+    const opt = Array.from($('#contentLoader').options).find((o) => o.value === v.loader);
+    if (opt) $('#contentLoader').value = v.loader;
+  }
+  $('#contentTarget').value = `${v.dir}|${v.id}`;
+  $('#contentSearch').value = '';
+  $('#contentSearch').focus();
 }
 
 function renderJavaSummary() {
@@ -2148,7 +2266,7 @@ function renderSettings() {
 
   $('#jvmArgs').value = s.jvmArgs || '';
   $('#fullscreenSwitch').checked = Boolean(s.fullscreen);
-  $('#showLogSwitch').checked = s.showLog !== false;
+  $('#showLogSwitch').checked = s.showLog === true;
   $('#autoCheckSwitch').checked = s.autoCheck !== false;
   $('#gpuFallbackSwitch').checked = Boolean(s.gpuFallback);
   $('#gpuPerfSwitch').checked = Boolean(s.gpuHighPerf);
@@ -2741,11 +2859,13 @@ function bindEvents() {
       $('.mc-btn-face', btn).textContent = '开 始 游 戏';
       toast(r.error, 'err');
       appendLog(`> 启动失败：${r.error}`);
-      if (S.settings.showLog !== false) setLogOpen(true);
+      // 失败例外：日志里有失败原因，这时候收起来等于把线索藏了
+      setLogOpen(true);
       return;
     }
     S.running = r.data.pid;
-    setLogOpen(true);
+    // 运行期间默认收起，只有在设置里明确勾选了「启动后显示日志」才自动展开
+    if (S.settings.showLog === true) setLogOpen(true);
     appendLog(`> 使用 Java ${r.data.java.major}（${r.data.java.version}）启动 ${cur.id}`);
     renderPlaySelect();
     toast('游戏启动中，请稍候…', 'ok');
@@ -2909,21 +3029,10 @@ function bindEvents() {
     } else if (btn.dataset.act === 'mods') {
       // 直接把「资源」页切到这个实例：版本、加载器、安装位置一并带过去，
       // 省得用户自己在下拉里翻（很多人不知道那里能搜 Mod）
-      S.selected = key;
-      renderPlaySelect();
-      S.contentKind = 'mod';
-      switchView('content');
-      $$('#contentKind .seg').forEach((x) => x.classList.toggle('active', x.dataset.kind === 'mod'));
-      renderContentFilters();
-      if (v.mcVersion) $('#contentMc').value = v.mcVersion;
-      if (v.loader) {
-        const opt = Array.from($('#contentLoader').options).find((o) => o.value === v.loader);
-        if (opt) $('#contentLoader').value = v.loader;
-      }
-      $('#contentTarget').value = `${v.dir}|${v.id}`;
-      $('#contentSearch').value = '';
-      $('#contentSearch').focus();
+      jumpToContentFor(v);
       appendLog(`> 已切到「资源」页，搜索关键词即可给 ${v.id} 装 Mod`);
+    } else if (btn.dataset.act === 'listmods') {
+      openModsModal(v);
     } else if (btn.dataset.act === 'remove') {
       if (!confirm(`确定删除版本 ${v.id}？会移除该实例目录，不可撤销。`)) return;
       const r = await api.remove(v.id, v.dir);

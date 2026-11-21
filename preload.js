@@ -72,6 +72,12 @@ contextBridge.exposeInMainWorld('smucl', {
   onAuthFailed: (cb) => on('auth:failed', cb),
   installLoader: (loader, mc, loaderVersion, url) =>
     ipcRenderer.invoke('loader:install', { loader, mc, loaderVersion, url }),
+
+  // 实例已装模组
+  modsList: (id, dir) => ipcRenderer.invoke('mods:list', { id, dir }),
+  modsToggle: (id, dir, file, enabled) => ipcRenderer.invoke('mods:toggle', { id, dir, file, enabled }),
+  modsTrash: (id, dir, file) => ipcRenderer.invoke('mods:trash', { id, dir, file }),
+  modsReveal: (id, dir, file) => ipcRenderer.invoke('mods:reveal', { id, dir, file }),
   onLoader: (cb) => on('loader:progress', cb),
   pickPack: () => ipcRenderer.invoke('pack:pick'),
   inspectPack: (file) => ipcRenderer.invoke('pack:inspect', { file }),

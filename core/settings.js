@@ -17,7 +17,7 @@ const DEFAULTS = {
   memory: 4096,
   downloadSource: 'bmcl', // bmcl = BMCLAPI 镜像（国内快） | mojang = 官方源
   playerName: 'Steve',
-  showLog: true,
+  showLog: false,
   fullscreen: false,
   resolution: { enabled: false, width: 925, height: 530 },
   jvmArgs: '',
@@ -72,6 +72,16 @@ function load() {
     resolution: { ...DEFAULTS.resolution, ...(disk.resolution || {}) },
     wallpaper: { ...DEFAULTS.wallpaper, ...(disk.wallpaper || {}) },
   };
+
+  // 2.3.0：日志面板改为默认收起。
+  // 旧版 save() 会把默认值整份写盘，所以老配置里的 showLog:true 多数是
+  // 「默认值被带出来的」而不是用户主动勾的。这里做一次性迁移：
+  // 迁移标记写回磁盘之前，按收起处理；迁移后用户再打开就不会被改回去。
+  if (!disk.logDefaultMigrated) {
+    cache.showLog = false;
+    cache.logDefaultMigrated = true;
+  }
+
   return cache;
 }
 
