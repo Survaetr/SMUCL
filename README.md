@@ -9,7 +9,7 @@
 [![Electron](https://img.shields.io/badge/Electron-45-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6?logo=windows&logoColor=white)](#)
 [![License](https://img.shields.io/badge/license-MIT-3DA639)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.2.0-3b7dd8](#)
+[![Version](https://img.shields.io/badge/version-2.3.0-3b7dd8](#)
 [![Release](https://img.shields.io/github/v/release/Survaetr/SMUCL?label=release&color=3DA639)](https://github.com/Survaetr/SMUCL/releases)
 
 </div>
@@ -19,7 +19,7 @@
 > 仓库页绿色的 `Code → Download ZIP` 拿到的是源码，解压后只有 `main.js`、`core/`、`build/` 这些文件，
 > **没有 `SMUCL.exe`**，要装 Node.js 才能跑。
 >
-> 免安装版直链：[**SMUCL-2.2.0-portable.zip**](https://github.com/Survaetr/SMUCL/releases/download/v2.2.0/SMUCL-2.2.0-portable.zip)（142 MB，解压后双击 `SMUCL.exe`）
+> 免安装版直链：[**SMUCL-2.3.0-portable.zip**](https://github.com/Survaetr/SMUCL/releases/download/v2.3.0/SMUCL-2.3.0-portable.zip)（142 MB，解压后双击 `SMUCL.exe`）
 > ·
 > 国内网盘：[夸克网盘](https://pan.quark.cn/s/a054da815452)
 > ·
@@ -161,6 +161,14 @@ SMUCL/
 https://survaetr.github.io/SMUCL/ （GitHub Pages，内容放在 `gh-pages` 分支根目录）。
 
 ## 更新记录
+
+**v2.3.0**（2026-11-21）已装模组与更安静的界面
+
+- 版本卡片新增「已装模组」：名称与版本从 jar 内元数据读，覆盖 Fabric / Quilt / Forge / NeoForge
+- 模组可就地启用、禁用（只改扩展名）与移到回收站
+- 首次进游戏自动简体中文并关闭复述功能，只补缺失项，不覆盖玩家改过的设置
+- 日志面板默认收起，启动失败例外；旧配置里被默认值带出来的 `showLog:true` 一次性迁移
+- 删掉各页面标题下复述按钮功能的说明文字
 
 **v2.2.0**（2026-11-21）没有 Java 也能用
 
