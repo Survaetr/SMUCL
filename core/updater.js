@@ -92,7 +92,7 @@ function rawGet(url, headers = {}, timeout = TIMEOUT) {
   return new Promise((resolve, reject) => {
     const req = https.get(
       url,
-      { headers: { 'User-Agent': UA, ...headers }, rejectUnauthorized: false, timeout },
+      { headers: { 'User-Agent': UA, ...headers }, timeout },
       (res) => {
         let body = '';
         res.setEncoding('utf8');
@@ -371,7 +371,6 @@ function downloadFile(url, dest, onProgress) {
           url,
           {
             headers: { 'User-Agent': UA, Accept: 'application/octet-stream' },
-            rejectUnauthorized: false,
             timeout: 120000,
           },
           (res) => onResponse(res, res.statusCode)
