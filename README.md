@@ -9,7 +9,7 @@
 [![Electron](https://img.shields.io/badge/Electron-45-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078D6?logo=windows&logoColor=white)](#)
 [![License](https://img.shields.io/badge/license-MIT-3DA639)](LICENSE)
-[![Version](https://img.shields.io/badge/version-2.1.0-3b7dd8](#)
+[![Version](https://img.shields.io/badge/version-2.2.0-3b7dd8](#)
 [![Release](https://img.shields.io/github/v/release/Survaetr/SMUCL?label=release&color=3DA639)](https://github.com/Survaetr/SMUCL/releases)
 
 </div>
@@ -19,7 +19,7 @@
 > 仓库页绿色的 `Code → Download ZIP` 拿到的是源码，解压后只有 `main.js`、`core/`、`build/` 这些文件，
 > **没有 `SMUCL.exe`**，要装 Node.js 才能跑。
 >
-> 免安装版直链：[**SMUCL-2.1.0-portable.zip**](https://github.com/Survaetr/SMUCL/releases/download/v2.1.0/SMUCL-2.1.0-portable.zip)（142 MB，解压后双击 `SMUCL.exe`）
+> 免安装版直链：[**SMUCL-2.2.0-portable.zip**](https://github.com/Survaetr/SMUCL/releases/download/v2.2.0/SMUCL-2.2.0-portable.zip)（142 MB，解压后双击 `SMUCL.exe`）
 > ·
 > 国内网盘：[夸克网盘](https://pan.quark.cn/s/a054da815452)
 > ·
@@ -161,6 +161,15 @@ SMUCL/
 https://survaetr.github.io/SMUCL/ （GitHub Pages，内容放在 `gh-pages` 分支根目录）。
 
 ## 更新记录
+
+**v2.2.0**（2026-11-21）没有 Java 也能用
+
+- 本机没有 Java 时不再只报错：确认后自动下载 Temurin JRE 到 `游戏目录/runtime/jre-{主版本}`
+- 源优先清华 TUNA 镜像，失败回退 Adoptium 官方
+- 安装加载器、安装整合包、启动游戏三处都接上，装完自动重试原操作
+- 设置 → Java 运行时 新增「获取 Java…」，可主动补 Java 8 / 17 / 21
+- 校验：zip 头 + 体积下限 + 实际执行 `java -version` 核对主版本
+- 接受社区 CWE-295 修复，移除更新器直连兜底的 `rejectUnauthorized: false`
 
 **v2.1.0**（2026-11-15）正版与离线自由切换
 
