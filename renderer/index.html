@@ -306,7 +306,7 @@
           <div id="contentPackPanel" hidden>
             <div class="pack-notice" id="packNotice" hidden></div>
             <div class="toolbar">
-              <input class="input search" id="packSearch" placeholder="搜索整合包，例如 Fabulously Optimized" />
+              <input class="input search" id="packSearch" placeholder="搜索整合包，中文或英文都行，例如 科技、SkyFactory" />
               <div class="toolbar-right">
                 <div class="segmented" id="packSource">
                   <button class="seg active" data-source="modrinth">Modrinth</button>
@@ -315,6 +315,7 @@
                 <button class="btn-sm primary" id="btnPackSearch">搜索</button>
               </div>
             </div>
+            <p class="hint" id="packSearchHint" hidden></p>
             <div class="pack-grid" id="packGrid"></div>
             <div class="empty" id="packEmpty" hidden>
               <img class="pixel" src="../assets/logo-mc-128.png" alt="" />
@@ -326,11 +327,12 @@
           <!-- 普通资源列表 -->
           <div id="contentListPanel">
             <div class="toolbar">
-              <input class="input search" id="contentSearch" placeholder="搜索项目，例如 sodium、Complementary" />
+              <input class="input search" id="contentSearch" placeholder="搜索项目，中文或英文都行，例如 钠、sodium、Complementary" />
               <div class="toolbar-right">
                 <button class="btn-sm primary" id="btnContentSearch">搜索</button>
               </div>
             </div>
+            <p class="hint" id="contentSearchHint" hidden></p>
 
             <div class="content-filters">
               <label class="filter-field">

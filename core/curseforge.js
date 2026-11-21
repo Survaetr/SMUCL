@@ -15,6 +15,7 @@ const os = require('os');
 const AdmZip = require('adm-zip');
 
 const net = require('./net');
+const cnsearch = require('./cnsearch');
 const modpack = require('./modpack');
 
 const API = 'https://api.curseforge.com/v1';
@@ -35,11 +36,27 @@ async function api(key, url) {
 }
 
 async function search(key, query, { limit = 20, offset = 0 } = {}) {
-  const url =
+  const build = (q) =>
     `${API}/mods/search?gameId=${GAME_ID}&classId=${CLASS_MODPACK}` +
-    `&searchFilter=${encodeURIComponent(query || '')}&pageSize=${limit}&index=${offset}` +
+    `&searchFilter=${encodeURIComponent(q || '')}&pageSize=${limit}&index=${offset}` +
     `&sortField=6&sortOrder=desc`;
-  const data = await api(key, url);
+
+  // CurseForge 同样只认英文，中文先翻译再查；取命中最多的一档
+  const tries = cnsearch.candidates(query);
+  let data = null;
+  let usedQuery = '';
+  let best = -1;
+  for (const q of tries) {
+    const got = await api(key, build(q));
+    const n = (got.pagination && got.pagination.totalCount) || (got.length || 0);
+    if (n > best) {
+      best = n;
+      data = got;
+      usedQuery = q;
+    }
+    if (n >= 5) break;
+  }
+
   return {
     total: (data.pagination && data.pagination.totalCount) || data.length,
     hits: (data.map ? data : []).map((m) => ({
@@ -53,6 +70,7 @@ async function search(key, query, { limit = 20, offset = 0 } = {}) {
       categories: (m.categories || []).map((c) => c.name),
       versions: [],
     })),
+    usedQuery: usedQuery !== query ? usedQuery : '',
   };
 }
 

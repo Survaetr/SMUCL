@@ -12,18 +12,48 @@ const AdmZip = require('adm-zip');
 
 const net = require('./net');
 const modpack = require('./modpack');
+const cnsearch = require('./cnsearch');
 
 const API = 'https://api.modrinth.com/v2';
 
-function facets() {
-  return encodeURIComponent(JSON.stringify([['project_type:modpack']]));
+function facets(extraCats = []) {
+  const groups = [['project_type:modpack']];
+  if (extraCats.length) groups.push(extraCats.map((c) => `categories:${c}`));
+  return encodeURIComponent(JSON.stringify(groups));
 }
 
 async function search(query, { limit = 20, offset = 0 } = {}) {
-  const url =
-    `${API}/search?query=${encodeURIComponent(query || '')}&facets=${facets()}` +
+  const build = (q, facetStr) =>
+    `${API}/search?query=${encodeURIComponent(q)}&facets=${facetStr}` +
     `&limit=${limit}&offset=${offset}&index=relevance`;
-  const data = await net.fetchJson(url, { timeout: 20000 });
+
+  // 中文查询先翻译；逐个候选试，取命中最多的一档（命中够多就提前停）
+  const tries = cnsearch.candidates(query);
+  let data = null;
+  let usedQuery = '';
+  let best = -1;
+  for (const q of tries) {
+    const got = await net.fetchJson(build(q, facets()), { timeout: 20000 });
+    const n = got.total_hits || 0;
+    if (n > best) {
+      best = n;
+      data = got;
+      usedQuery = q;
+    }
+    if (n >= 5) break;
+  }
+
+  if ((data.total_hits || 0) === 0) {
+    const cats = cnsearch.categories(query);
+    if (cats.length) {
+      const got = await net.fetchJson(build('', facets(cats)), { timeout: 20000 });
+      if ((got.total_hits || 0) > 0) {
+        data = got;
+        usedQuery = '';
+      }
+    }
+  }
+
   return {
     total: data.total_hits || 0,
     hits: (data.hits || []).map((h) => ({
@@ -38,6 +68,7 @@ async function search(query, { limit = 20, offset = 0 } = {}) {
       categories: h.categories || [],
       versions: h.versions || [],
     })),
+    usedQuery: usedQuery !== query ? usedQuery : '',
   };
 }
 

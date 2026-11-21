@@ -738,6 +738,26 @@ async function invoke(channel, payload, event = goodEvent()) {
     check('缺少项目 ID 被拒绝', missing.ok === false);
   }
 
+  console.log('\n[21] N14 中文检索映射');
+  {
+    const cn = require(path.join(ROOT, 'core', 'cnsearch'));
+
+    check('识别中文', cn.hasCJK('机械动力') === true && cn.hasCJK('sodium') === false);
+    check('英文查询原样返回', JSON.stringify(cn.candidates('sodium')) === '["sodium"]');
+    check('常见模组名映射成英文', cn.candidates('机械动力').includes('create'));
+    check('多词短语补核心词', cn.candidates('小地图').includes('minimap'));
+
+    // 纯类型词（光影 / 整合包）不该拿中文去硬查，应直接列该分类
+    check('光影归入分类浏览', JSON.stringify(cn.candidates('光影')) === '[""]');
+    check('整合包归入分类浏览', JSON.stringify(cn.candidates('整合包')) === '[""]');
+
+    check('类目词映射到 category', cn.categories('科技整合包').includes('technology'));
+    check('无类目词时为空', cn.categories('sodium').length === 0);
+
+    // 完全没收录的中文：至少保留原文，不能变成空查询把全站拉出来
+    check('未收录中文保留原文', JSON.stringify(cn.candidates('你蒸程')) === '["你蒸程"]');
+  }
+
   Module._load = origLoad;
 
   console.log(`\n===== 结果：${passed} 通过，${failures.length} 失败 =====`);

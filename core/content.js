@@ -15,6 +15,7 @@ const fs = require('fs');
 const net = require('./net');
 const safe = require('./safe');
 const dirsLib = require('./dirs');
+const cnsearch = require('./cnsearch');
 
 const API = 'https://api.modrinth.com/v2';
 
@@ -130,14 +131,46 @@ async function search(kind, { query = '', mcVersion = '', loader = '', limit = 2
 
   const facets = encodeURIComponent(JSON.stringify(groups));
   const idx = ['relevance', 'downloads', 'follows', 'newest', 'updated'].includes(sort) ? sort : 'relevance';
-  const url =
-    `${API}/search?query=${encodeURIComponent(query)}&facets=${facets}` +
+
+  const build = (q, facetStr) =>
+    `${API}/search?query=${encodeURIComponent(q)}&facets=${facetStr}` +
     `&limit=${limit}&offset=${offset}&index=${idx}`;
 
-  const data = await net.fetchJson(url, { timeout: 20000 });
+  // 中文查询先翻译再查；逐个候选试，取命中最多的一档（命中够多就提前停）
+  const tries = cnsearch.candidates(query);
+  let data = null;
+  let usedQuery = '';
+  let best = -1;
+  for (const q of tries) {
+    const got = await net.fetchJson(build(q, facets), { timeout: 20000 });
+    const n = got.total_hits || 0;
+    if (n > best) {
+      best = n;
+      data = got;
+      usedQuery = q;
+    }
+    if (n >= 5) break;
+  }
+
+  // 纯类目词（科技 / 魔法 …）再按 Modrinth category 兜一次，标题里没写这些词的包也能捞到
+  if ((data.total_hits || 0) === 0 && def.byLoader) {
+    const cats = cnsearch.categories(query);
+    if (cats.length) {
+      const withCats = [...groups, cats.map((c) => `categories:${c}`)];
+      const got = await net.fetchJson(build('', encodeURIComponent(JSON.stringify(withCats))), {
+        timeout: 20000,
+      });
+      if ((got.total_hits || 0) > 0) {
+        data = got;
+        usedQuery = '';
+      }
+    }
+  }
+
   return {
     total: data.total_hits || 0,
     hits: (data.hits || []).map(normalizeHit),
+    usedQuery: usedQuery !== query ? usedQuery : '',
   };
 }
 

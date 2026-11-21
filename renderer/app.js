@@ -1681,6 +1681,14 @@ async function searchPacks() {
   showPackNotice(false);
   S.packHits = r.data.hits || [];
   renderPackResults();
+
+  const ph = $('#packSearchHint');
+  if (ph) {
+    const used = r.data.usedQuery;
+    ph.hidden = !used;
+    ph.textContent = used ? `中文关键词已按「${used}」检索` : '';
+  }
+
   if (!S.packHits.length) {
     $('#packEmptyTitle').textContent = '没有找到结果';
     $('#packEmptyText').textContent = '换个关键词试试，或者切换来源。';
@@ -2108,6 +2116,14 @@ async function searchContent() {
   }
   S.contentHits = r.data.hits;
   renderContentResults();
+
+  // 中文查询被翻译成英文时说明一句，免得用户以为搜错了
+  const hint = $('#contentSearchHint');
+  if (hint) {
+    const used = r.data.usedQuery;
+    hint.hidden = !used;
+    hint.textContent = used ? `中文关键词已按「${used}」检索` : '';
+  }
 }
 
 async function planContentInstall(hit, version) {
