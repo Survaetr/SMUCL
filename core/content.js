@@ -75,10 +75,57 @@ function normalizeVersion(v) {
  * 搜索。
  * @param {'mod'|'shader'|'resourcepack'} kind
  */
+/**
+ * 光影与材质包基本是跨版本通用的：一个光影包往往只标注到 1.21.4，
+ * 装进 1.21.11 照样能用（它们只依赖 Iris/OptiFine 的着色器接口，不依赖游戏补丁版本）。
+ * 按单版本硬筛会把这类结果全部挡掉，所以这两类改成「同一小版本系列内任一命中即可」。
+ */
+const _gvCache = { at: 0, list: [] };
+
+async function gameVersionList() {
+  if (_gvCache.list.length && Date.now() - _gvCache.at < 6 * 3600 * 1000) return _gvCache.list;
+  try {
+    const list = await net.fetchJson(`${API}/tag/game_version`, { timeout: 15000 });
+    const arr = (Array.isArray(list) ? list : [])
+      .map((v) => String((v && v.version) || ''))
+      .filter((v) => /^\d/.test(v));
+    if (arr.length) {
+      _gvCache.list = arr;
+      _gvCache.at = Date.now();
+    }
+  } catch {
+    /* 拿不到版本表就退回单版本筛选，不影响主流程 */
+  }
+  return _gvCache.list;
+}
+
+/** 1.21.11 → 1.21；26.3 → 26.3（新版号只有两段，直接原样返回） */
+function familyOf(mcVersion) {
+  const s = String(mcVersion == null ? '' : mcVersion).trim();
+  if (!s) return '';
+  const parts = s.split('.');
+  return parts.length >= 3 ? `${parts[0]}.${parts[1]}` : s;
+}
+
+/**
+ * 该类型应匹配的游戏版本列表。
+ * mod 严格按实例版本；光影/材质包扩展到整个小版本系列。
+ */
+async function versionsFor(kind, mcVersion) {
+  if (!mcVersion) return [];
+  const def = KINDS[kind] || KINDS.mod;
+  if (def.byLoader) return [mcVersion];
+
+  const fam = familyOf(mcVersion);
+  const all = await gameVersionList();
+  const hit = all.filter((v) => v === mcVersion || v === fam || v.startsWith(fam + '.'));
+  return hit.length > 1 ? hit : [mcVersion];
+}
+
 async function search(kind, { query = '', mcVersion = '', loader = '', limit = 24, offset = 0, sort = 'relevance' } = {}) {
   const def = kindOf(kind);
   const groups = [[`project_type:${def.projectType}`]];
-  if (mcVersion) groups.push([`versions:${mcVersion}`]);
+  if (mcVersion) groups.push((await versionsFor(kind, mcVersion)).map((v) => `versions:${v}`));
   if (def.byLoader && loader && LOADER_FACET[loader]) groups.push([`categories:${LOADER_FACET[loader]}`]);
 
   const facets = encodeURIComponent(JSON.stringify(groups));
@@ -98,7 +145,10 @@ async function search(kind, { query = '', mcVersion = '', loader = '', limit = 2
 async function versions(projectId, { mcVersion = '', loader = '', kind = 'mod' } = {}) {
   const def = KINDS[kind] || KINDS.mod;
   const q = [];
-  if (mcVersion) q.push(`game_versions=${encodeURIComponent(JSON.stringify([mcVersion]))}`);
+  if (mcVersion) {
+    const gvs = await versionsFor(kind, mcVersion);
+    q.push(`game_versions=${encodeURIComponent(JSON.stringify(gvs))}`);
+  }
   if (def.byLoader && loader && LOADER_FACET[loader]) {
     q.push(`loaders=${encodeURIComponent(JSON.stringify([LOADER_FACET[loader]]))}`);
   }
@@ -322,4 +372,4 @@ async function install({
   }
 }
 
-module.exports = { search, versions, plan, install };
+module.exports = { search, versions, plan, install, familyOf };

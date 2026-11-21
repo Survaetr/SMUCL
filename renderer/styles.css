@@ -1293,6 +1293,13 @@ html[data-theme="light"] .pack-warn { color: #8a5d05; }
 .pack-notice .input { flex: 1 1 260px; height: 34px; }
 html[data-theme="light"] .pack-notice { color: #6b5327; }
 
+/* 说明性提示（非警告）：用于解释筛选口径 */
+.pack-notice.info {
+  background: color-mix(in srgb, var(--brand) 8%, transparent);
+  border-color: color-mix(in srgb, var(--brand) 24%, transparent);
+}
+html[data-theme="light"] .pack-notice.info { color: color-mix(in srgb, var(--brand) 62%, #1d2b3a); }
+
 .pack-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 14px;

@@ -704,6 +704,27 @@ async function invoke(channel, payload, event = goodEvent()) {
     check('迁移后用户主动开启日志会被保留', disk.showLog === true && disk.logDefaultMigrated === true);
   }
 
+  console.log('\n[19] N12 光影 / 材质包的版本族匹配');
+  {
+    const contentLib = require(path.join(ROOT, 'core', 'content'));
+
+    // 光影与材质包不依赖游戏补丁版本，只标注到 1.21.4 的包在 1.21.11 上同样可用，
+    // 按单版本硬筛会把它们全部挡掉，所以这两类按小版本系列匹配。
+    check('1.21.11 归入 1.21 系列', contentLib.familyOf('1.21.11') === '1.21');
+    check('1.20.1 归入 1.20 系列', contentLib.familyOf('1.20.1') === '1.20');
+    check('两段式版本号原样保留', contentLib.familyOf('26.3') === '26.3');
+    check('非法/空输入不抛异常', contentLib.familyOf('') === '' && contentLib.familyOf(undefined) === '');
+
+    // 类型白名单仍然生效：不能借「光影」这个入口绕过 kind 校验
+    let threw = false;
+    try {
+      await contentLib.search('shaderpacks', { query: 'x' });
+    } catch (e) {
+      threw = /不支持的内容类型/.test(e.message);
+    }
+    check('未知内容类型被拒绝', threw);
+  }
+
   Module._load = origLoad;
 
   console.log(`\n===== 结果：${passed} 通过，${failures.length} 失败 =====`);

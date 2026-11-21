@@ -1734,6 +1734,21 @@ function renderContentFilters() {
     if (hit) $('#contentLoader').value = cur.loader;
   }
 
+  // 光影/材质包按小版本系列匹配，把口径写在页面上，免得被当成筛选失效
+  const notice = $('#contentNotice');
+  if (notice) {
+    const packLike = S.contentKind !== 'mod';
+    notice.hidden = !packLike;
+    if (packLike) {
+      const picked = sel.value || (cur && cur.mcVersion) || '';
+      const parts = String(picked).split('.');
+      const fam = parts.length >= 3 ? `${parts[0]}.${parts[1]}.x` : picked;
+      notice.innerHTML =
+        `光影与材质包按 <b>${esc(fam || '当前小版本')}</b> 全系列匹配：` +
+        `只标注到旧小版本的包在 ${esc(picked || '当前版本')} 上同样可用，也会一并列出。`;
+    }
+  }
+
   // 安装目标可在本页直接切换，不必回首页
   const target = $('#contentTarget');
   if (target) {
